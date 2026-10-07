@@ -1,0 +1,28 @@
+-- Dispatcher schedule via Supabase Cron (pg_cron) + pg_net. NOT a migration: it needs your
+-- deployment URL and secret. Run once in the Supabase SQL editor after deploying.
+-- Works on any Vercel plan (Vercel Hobby cron is limited to once per day).
+--
+-- 1. Enable the extensions (Dashboard > Database > Extensions): pg_cron, pg_net.
+-- 2. Store the URL and secret in Vault (never inline secrets in the job body):
+select vault.create_secret('https://YOUR-APP.vercel.app', 'aangan_app_url');
+select vault.create_secret('REPLACE_WITH_DISPATCH_SECRET', 'aangan_dispatch_secret');
+
+-- 3. Every minute, run one bounded dispatcher batch.
+select cron.schedule(
+  'aangan-dispatch-every-minute',
+  '* * * * *',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'aangan_app_url') || '/internal/jobs/dispatch?limit=25&time_budget_ms=20000',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'aangan_dispatch_secret')
+    ),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 25000
+  ) as request_id;
+  $$
+);
+
+-- Inspect: select * from cron.job_run_details order by start_time desc limit 20;
+-- Remove:  select cron.unschedule('aangan-dispatch-every-minute');

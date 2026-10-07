@@ -1,0 +1,83 @@
+{
+  "id": "ambiguous_area",
+  "title": "Ambiguous area units and a complaint (test)",
+  "description": "Caller gives an area without units, then in square metres; also complains about a past experience with another studio and asks for a person.",
+  "synthetic": true,
+  "caller_phone": "+919000000108",
+  "turns": [
+    {
+      "caller": "I want full home interiors for my apartment in Kothrud.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "service",
+            "quote": "full home interiors",
+            "service_id": "full_home_interiors",
+            "text_value": "full home interiors"
+          },
+          {
+            "field": "location",
+            "quote": "Kothrud",
+            "text_value": "Kothrud"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "It's 1200.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "area",
+            "quote": "1200",
+            "number_value": 1200,
+            "unit": null
+          }
+        ]
+      }
+    },
+    {
+      "caller": "No, sorry, it's 110 square metres. My last designer was terrible and I want to complain, can I talk to a real person?",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "area",
+            "quote": "110 square metres",
+            "number_value": 110,
+            "unit": "sqm"
+          }
+        ],
+        "requests": [
+          {
+            "kind": "complaint",
+            "quote": "I want to complain"
+          },
+          {
+            "kind": "human_requested",
+            "quote": "talk to a real person"
+          }
+        ]
+      },
+      "rejects": true
+    }
+  ],
+  "booking": null,
+  "ending": {
+    "reason": "caller_hangup",
+    "after_turn": 2
+  },
+  "expected": {
+    "decision": "needs_review",
+    "discovery_status": "incomplete",
+    "escalations": [
+      "complaint",
+      "human_requested"
+    ],
+    "booking_status": "none",
+    "handoff_purpose": "front_desk_review",
+    "crm_synced": false
+  }
+}

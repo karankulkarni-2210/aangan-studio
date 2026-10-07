@@ -1,0 +1,66 @@
+{
+  "id": "price_only",
+  "title": "Price-only enquiry",
+  "arrival_ist": "21:40",
+  "description": "After-hours caller only wants the per-square-foot rate and shares almost nothing else. The agent gives no price, escalates to a human and captures a callback.",
+  "synthetic": true,
+  "caller_phone": "+919000000104",
+  "turns": [
+    {
+      "caller": "Hi, I just want to know your rate per square foot for interiors.",
+      "extraction": {
+        "intent": "unknown",
+        "intent_confidence": 0.4,
+        "facts": [],
+        "requests": [
+          {
+            "kind": "pricing_request",
+            "quote": "your rate per square foot"
+          }
+        ],
+        "proposed_route": "human_escalation"
+      }
+    },
+    {
+      "caller": "I'm not sure about all that yet, I just wanted the price.",
+      "extraction": {
+        "intent": "unknown",
+        "facts": [],
+        "requests": [
+          {
+            "kind": "pricing_request",
+            "quote": "I just wanted the price"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "Pune, but I'd rather not get into details.",
+      "extraction": {
+        "intent": "unknown",
+        "facts": [
+          {
+            "field": "location",
+            "quote": "Pune",
+            "text_value": "Pune"
+          }
+        ]
+      }
+    }
+  ],
+  "booking": null,
+  "ending": {
+    "reason": "caller_hangup",
+    "after_turn": 2
+  },
+  "expected": {
+    "decision": "needs_review",
+    "discovery_status": "incomplete",
+    "escalations": [
+      "pricing_request"
+    ],
+    "booking_status": "none",
+    "handoff_purpose": "front_desk_review",
+    "crm_synced": false
+  }
+}

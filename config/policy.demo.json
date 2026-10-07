@@ -1,0 +1,354 @@
+{
+  "schema_version": 1,
+  "label": "Demo data and sample business rules",
+  "demo": true,
+  "demo_notice": "DEMO ONLY: every service, boundary, threshold, script and deadline below is an invented sample for the MVP. None of it is Aangan Studio's actual commercial policy. Replace before any live pilot.",
+  "timezone": "Asia/Kolkata",
+  "currency": "INR",
+  "services": [
+    {
+      "id": "full_home_interiors",
+      "name": "Full-home interiors (demo)",
+      "supported": true,
+      "aliases": [
+        "full home",
+        "full-home",
+        "home interior",
+        "home interiors",
+        "house interior",
+        "flat interior",
+        "apartment interior",
+        "complete interior",
+        "whole house",
+        "whole flat",
+        "entire flat",
+        "entire home",
+        "bhk interior",
+        "villa interior",
+        "new flat",
+        "new home"
+      ],
+      "decline_script": null
+    },
+    {
+      "id": "small_office_interiors",
+      "name": "Small-office interiors (demo)",
+      "supported": true,
+      "aliases": [
+        "office interior",
+        "office interiors",
+        "small office",
+        "office fit out",
+        "office fit-out",
+        "office space",
+        "workspace",
+        "studio office",
+        "clinic interior"
+      ],
+      "decline_script": null
+    },
+    {
+      "id": "structural_construction",
+      "name": "Structural construction (demo: excluded)",
+      "supported": false,
+      "aliases": [
+        "construction",
+        "construct",
+        "build a house",
+        "build my house",
+        "building a house",
+        "civil work",
+        "structural",
+        "new building",
+        "bungalow construction",
+        "foundation",
+        "extension",
+        "extra floor",
+        "add a floor"
+      ],
+      "decline_script": "Our sample service list covers interior design for homes and small offices. Structural construction is outside that list, so I can't arrange it, but I'll note your enquiry for the team."
+    }
+  ],
+  "service_area": {
+    "label": "Pune (demo boundary)",
+    "city": "Pune",
+    "accepted_locations": [
+      "pune",
+      "pimpri",
+      "chinchwad",
+      "pimpri chinchwad",
+      "pcmc",
+      "baner",
+      "balewadi",
+      "aundh",
+      "kothrud",
+      "karve nagar",
+      "hinjewadi",
+      "wakad",
+      "pimple saudagar",
+      "kharadi",
+      "viman nagar",
+      "koregaon park",
+      "kalyani nagar",
+      "hadapsar",
+      "magarpatta",
+      "bavdhan",
+      "sus",
+      "pashan",
+      "shivaji nagar",
+      "camp",
+      "wagholi",
+      "undri",
+      "kondhwa",
+      "nibm",
+      "warje",
+      "sinhagad road",
+      "bibwewadi",
+      "yerawada",
+      "dhanori",
+      "lohegaon",
+      "ravet",
+      "tathawade",
+      "punawale"
+    ],
+    "known_outside_locations": [
+      "mumbai",
+      "navi mumbai",
+      "thane",
+      "nashik",
+      "nagpur",
+      "aurangabad",
+      "kolhapur",
+      "satara",
+      "lonavala",
+      "goa",
+      "bangalore",
+      "bengaluru",
+      "hyderabad",
+      "delhi",
+      "gurgaon",
+      "gurugram",
+      "noida",
+      "chennai",
+      "ahmedabad",
+      "surat",
+      "solapur",
+      "sangli"
+    ],
+    "outside_area_script": "Thank you. Our sample service area for this demo is Pune, so the studio may not be able to take this on, but I'll note your details for the team."
+  },
+  "fields": [
+    {
+      "field": "service",
+      "required_for_discovery": true,
+      "requires_confirmation": false,
+      "question": "What kind of project are you planning: a full home interior, an office interior, or something else?",
+      "why_needed": "Determines whether the enquiry is a service the studio offers and which designer specialism fits.",
+      "confirm_prompt": null,
+      "caller_may_decline": false
+    },
+    {
+      "field": "location",
+      "required_for_discovery": true,
+      "requires_confirmation": false,
+      "question": "Which city and area is the property in?",
+      "why_needed": "Checks the enquiry against the studio's service area before a designer travels.",
+      "confirm_prompt": null,
+      "caller_may_decline": false
+    },
+    {
+      "field": "area",
+      "required_for_discovery": true,
+      "requires_confirmation": true,
+      "question": "Roughly how large is the space, and is that carpet area or built-up area?",
+      "why_needed": "Gives the designer the scope. The basis matters because carpet and built-up areas differ.",
+      "confirm_prompt": "Just to confirm, that is about {area_sqft} square feet, {area_basis}?",
+      "caller_may_decline": false
+    },
+    {
+      "field": "timeline",
+      "required_for_discovery": true,
+      "requires_confirmation": false,
+      "question": "When are you hoping to start the work?",
+      "why_needed": "Tells the team how soon to schedule and whether the project is active.",
+      "confirm_prompt": null,
+      "caller_may_decline": false
+    },
+    {
+      "field": "budget",
+      "required_for_discovery": true,
+      "requires_confirmation": false,
+      "question": "Do you have a budget in mind for the project? It's fine if you'd rather not say.",
+      "why_needed": "Helps the designer prepare suitable options. The caller may decline; a missing budget sends the enquiry for review, not rejection.",
+      "confirm_prompt": "Could you tell me that budget figure again, including whether it is in lakh or crore?",
+      "caller_may_decline": true
+    },
+    {
+      "field": "contact_name",
+      "required_for_discovery": true,
+      "requires_confirmation": false,
+      "question": "May I have your name, please?",
+      "why_needed": "So the designer can address the caller and match the record.",
+      "confirm_prompt": null,
+      "caller_may_decline": false
+    },
+    {
+      "field": "callback_preference",
+      "required_for_discovery": true,
+      "requires_confirmation": false,
+      "question": "When is a good time for someone from the studio to call you back?",
+      "why_needed": "Avoids missed callbacks and repeat calls.",
+      "confirm_prompt": null,
+      "caller_may_decline": true
+    },
+    {
+      "field": "contact_email",
+      "required_for_discovery": false,
+      "requires_confirmation": true,
+      "question": "If you'd like a calendar invitation, which email address should we use?",
+      "why_needed": "Only needed when the calendar booking requires an email address.",
+      "confirm_prompt": "Let me read that back: {contact_email}. Is that right?",
+      "caller_may_decline": true
+    }
+  ],
+  "qualification_rules": [
+    {
+      "id": "INTENT_NEW_PROJECT",
+      "type": "intent_in",
+      "description": "Only new project enquiries are qualified automatically; other intents go to the front desk.",
+      "intents": [
+        "new_project"
+      ],
+      "on_fail": "needs_review"
+    },
+    {
+      "id": "SERVICE_SUPPORTED",
+      "type": "service_supported",
+      "description": "Demo: full-home and small-office interiors are supported; structural construction is not.",
+      "on_fail": "not_fit",
+      "on_unrecognised": "needs_review"
+    },
+    {
+      "id": "LOCATION_IN_SERVICE_AREA",
+      "type": "location_in_area",
+      "description": "Demo: the property must be in the Pune sample boundary.",
+      "on_fail": "not_fit"
+    },
+    {
+      "id": "AREA_POSITIVE_CONFIRMED",
+      "type": "number_threshold",
+      "description": "The caller must confirm a positive area read-back.",
+      "field": "area",
+      "comparison": "gt",
+      "threshold": 0,
+      "requires_confirmation": true,
+      "on_fail": "needs_review"
+    },
+    {
+      "id": "BUDGET_AT_LEAST_8_LAKH",
+      "type": "number_threshold",
+      "description": "Demo threshold (invented, not derived from the case): stated budget of at least 8 lakh rupees (80,000,000 paise).",
+      "field": "budget",
+      "comparison": "gte",
+      "threshold": 80000000,
+      "requires_confirmation": false,
+      "on_fail": "not_fit"
+    },
+    {
+      "id": "START_WITHIN_6_MONTHS",
+      "type": "number_threshold",
+      "description": "Demo: start expected within six months. Later starts go to review rather than rejection.",
+      "field": "timeline",
+      "comparison": "lte",
+      "threshold": 6,
+      "requires_confirmation": false,
+      "on_fail": "needs_review"
+    }
+  ],
+  "escalation": {
+    "pricing_request": {
+      "say": "A designer will confirm pricing after reviewing your scope. I can capture your details and help book a consultation.",
+      "assign_role": "front_desk"
+    },
+    "complaint": {
+      "say": "I'm sorry to hear that. I'll pass this to the team so a person can follow up with you directly.",
+      "assign_role": "front_desk"
+    },
+    "commitment_request": {
+      "say": "I'm not able to make commitments about costs, dates or terms. A designer will discuss that with you after reviewing your scope.",
+      "assign_role": "front_desk"
+    },
+    "human_requested": {
+      "say": "Of course. I'll ask the front desk to take over.",
+      "say_after_hours": "The front desk is closed right now. I'll arrange for someone to call you back during working hours.",
+      "assign_role": "front_desk"
+    },
+    "urgent": {
+      "say": "I understand this is urgent. I'll flag it for the team to follow up as a priority.",
+      "assign_role": "front_desk"
+    }
+  },
+  "scripts": {
+    "disclosure": "Hello, you've reached Aangan Studio. I'm an automated assistant, and this call may be transcribed so the team can follow up. You can ask for a person at any time.",
+    "language_prompt": "Would you prefer to continue in English, Hindi or Marathi?",
+    "qualified_close": "Thank you. Your project sounds like the kind our designers take on.",
+    "needs_review_close": "Thank you. A member of the team will review your details and call you back.",
+    "not_fit_close": "Thank you for calling. I've noted your enquiry for the team.",
+    "booking_offer": "Would you like to book a consultation with a designer?",
+    "booking_read_back": "To confirm, you'd like a consultation on {slot_label}. Shall I book it?",
+    "booking_confirmed": "Your consultation is booked for {slot_label}.",
+    "booking_conflict": "That time has just been taken. Could you choose another time?",
+    "booking_pending": "I couldn't confirm that booking just now, so it is not booked yet. The team will call you to arrange a time.",
+    "booking_declined": "No problem. A designer will call you to follow up.",
+    "handoff_confirmation": "I've passed your details to the team so you won't need to repeat them.",
+    "policy_missing_fallback": "Thank you for calling Aangan Studio. I'll take your details and the team will call you back.",
+    "recording_declined": "Understood. I won't keep a transcript. I'll take a short message so the team can call you back."
+  },
+  "languages": {
+    "offered": [
+      "en",
+      "hi",
+      "mr"
+    ],
+    "provisional": true
+  },
+  "operations": {
+    "staffed_hours": {
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "open": "10:00",
+      "close": "19:00"
+    },
+    "transfer_available_when_staffed": false,
+    "response_target_seconds": 300,
+    "meaningful_response_min_chars": 20,
+    "front_desk_queue_email": "front-desk@aangan-demo.example",
+    "handoff": {
+      "ack_deadline_minutes": 120,
+      "escalate_overdue_to": "front_desk_queue"
+    }
+  },
+  "booking": {
+    "enabled": true,
+    "duration_minutes": 45,
+    "horizon_days": 7,
+    "max_slots_offered": 3,
+    "require_attendee_email": false
+  },
+  "crm": {
+    "sync_decisions": [
+      "qualified"
+    ]
+  },
+  "retention": {
+    "transcript_days": 90,
+    "provider_payload_days": 30,
+    "recording_days": 30
+  }
+}

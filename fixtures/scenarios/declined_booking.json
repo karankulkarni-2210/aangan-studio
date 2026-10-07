@@ -1,0 +1,121 @@
+{
+  "id": "declined_booking",
+  "title": "Qualified office enquiry that declines a booking",
+  "description": "Qualified small-office project in Viman Nagar. The caller declines a consultation slot; the lead stays qualified and still goes to a designer.",
+  "synthetic": true,
+  "caller_phone": "+919000000106",
+  "turns": [
+    {
+      "caller": "We need office interiors for our new office space in Viman Nagar.",
+      "extraction": {
+        "intent": "new_project",
+        "intent_confidence": 0.9,
+        "facts": [
+          {
+            "field": "service",
+            "quote": "office interiors",
+            "service_id": "small_office_interiors",
+            "text_value": "office interiors"
+          },
+          {
+            "field": "location",
+            "quote": "Viman Nagar",
+            "text_value": "Viman Nagar"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "About 1,000 square feet carpet.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "area",
+            "quote": "About 1,000 square feet carpet",
+            "number_value": 1000,
+            "unit": "sqft",
+            "area_basis": "carpet"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "Yes.",
+      "confirms": true,
+      "extraction": {
+        "intent": "new_project",
+        "facts": []
+      }
+    },
+    {
+      "caller": "Within three months.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "timeline",
+            "quote": "Within three months",
+            "number_value": 3,
+            "unit": "months"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "Our budget is 10 lakh.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "budget",
+            "quote": "10 lakh",
+            "number_value": 10,
+            "unit": "lakh"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "This is Kabir Shah.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "contact_name",
+            "quote": "Kabir Shah",
+            "text_value": "Kabir Shah"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "Tomorrow morning is good.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "callback_preference",
+            "quote": "Tomorrow morning is good",
+            "text_value": "Tomorrow morning"
+          }
+        ]
+      }
+    }
+  ],
+  "booking": {
+    "action": "decline",
+    "caller_reply": "Not right now, just have a designer call me."
+  },
+  "ending": {
+    "reason": "agent_completed"
+  },
+  "expected": {
+    "decision": "qualified",
+    "discovery_status": "complete",
+    "escalations": [],
+    "booking_status": "declined",
+    "handoff_purpose": "designer_handoff",
+    "crm_synced": true
+  }
+}

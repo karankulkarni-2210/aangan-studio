@@ -1,0 +1,68 @@
+{
+  "id": "unsupported_construction",
+  "title": "Unsupported structural construction enquiry",
+  "description": "Caller wants a new bungalow built from the foundation up in Wakad. Structural construction is outside the sample service list: the agent states the boundary once, takes contact details only, and the lead is not_fit.",
+  "synthetic": true,
+  "caller_phone": "+919000000102",
+  "turns": [
+    {
+      "caller": "Hello, we have a plot in Wakad and want to build a house, the whole construction from the foundation up.",
+      "extraction": {
+        "intent": "new_project",
+        "intent_confidence": 0.9,
+        "facts": [
+          {
+            "field": "service",
+            "quote": "build a house",
+            "service_id": "structural_construction",
+            "text_value": "house construction from the foundation"
+          },
+          {
+            "field": "location",
+            "quote": "Wakad",
+            "text_value": "Wakad"
+          }
+        ],
+        "proposed_route": "polite_close"
+      }
+    },
+    {
+      "caller": "I'm Rohan Patil.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "contact_name",
+            "quote": "Rohan Patil",
+            "text_value": "Rohan Patil"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "Any morning is fine.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "callback_preference",
+            "quote": "Any morning is fine",
+            "text_value": "Any morning"
+          }
+        ]
+      }
+    }
+  ],
+  "booking": null,
+  "ending": {
+    "reason": "agent_completed"
+  },
+  "expected": {
+    "decision": "not_fit",
+    "discovery_status": "complete",
+    "escalations": [],
+    "booking_status": "none",
+    "handoff_purpose": null,
+    "crm_synced": false
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "id": "interrupted_call",
+  "title": "Interrupted call (network drop)",
+  "description": "Caller starts describing a 2BHK in Hadapsar and the line drops mid-answer. The partial lead is saved, discovery is incomplete and a callback task is created.",
+  "synthetic": true,
+  "caller_phone": "+919000000105",
+  "turns": [
+    {
+      "caller": "Hello, I need interiors done for my new flat in Hadapsar, it's a 2BHK.",
+      "extraction": {
+        "intent": "new_project",
+        "intent_confidence": 0.85,
+        "facts": [
+          {
+            "field": "service",
+            "quote": "interiors done for my new flat",
+            "service_id": "full_home_interiors",
+            "text_value": "interiors for a new flat"
+          },
+          {
+            "field": "location",
+            "quote": "Hadapsar",
+            "text_value": "Hadapsar"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "It's around nine hundred square",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "area",
+            "quote": "around nine hundred square",
+            "number_value": 900,
+            "unit": null
+          }
+        ]
+      }
+    }
+  ],
+  "booking": null,
+  "ending": {
+    "reason": "network_drop",
+    "after_turn": 1
+  },
+  "expected": {
+    "decision": "needs_review",
+    "discovery_status": "incomplete",
+    "escalations": [],
+    "booking_status": "none",
+    "handoff_purpose": "front_desk_review",
+    "crm_synced": false
+  }
+}

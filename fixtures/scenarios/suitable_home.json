@@ -1,0 +1,133 @@
+{
+  "id": "suitable_home",
+  "title": "Suitable full-home enquiry with a pricing question",
+  "description": "New 3BHK in Baner, confirmed carpet area, 15 lakh budget, starting next month. Asks for a per-square-foot rate mid-call (escalated to a human, no price given). Books a consultation.",
+  "synthetic": true,
+  "caller_phone": "+919000000101",
+  "turns": [
+    {
+      "caller": "Hi, we've just bought a 3BHK flat in Baner and we're looking for full home interiors.",
+      "extraction": {
+        "intent": "new_project",
+        "intent_confidence": 0.95,
+        "facts": [
+          {
+            "field": "service",
+            "quote": "full home interiors",
+            "service_id": "full_home_interiors",
+            "text_value": "full home interiors"
+          },
+          {
+            "field": "location",
+            "quote": "Baner",
+            "text_value": "Baner"
+          }
+        ],
+        "proposed_route": "continue_discovery"
+      }
+    },
+    {
+      "caller": "It's about 1,250 square feet, carpet area.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "area",
+            "quote": "about 1,250 square feet, carpet area",
+            "number_value": 1250,
+            "unit": "sqft",
+            "area_basis": "carpet"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "Yes, that's right.",
+      "confirms": true,
+      "extraction": {
+        "intent": "new_project",
+        "facts": []
+      }
+    },
+    {
+      "caller": "We'd like to start next month, once we get the keys.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "timeline",
+            "quote": "start next month",
+            "number_value": 1,
+            "unit": "months"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "We're thinking around 15 lakh. Roughly how much do you charge per square foot?",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "budget",
+            "quote": "around 15 lakh",
+            "number_value": 15,
+            "unit": "lakh"
+          }
+        ],
+        "requests": [
+          {
+            "kind": "pricing_request",
+            "quote": "how much do you charge per square foot"
+          }
+        ],
+        "proposed_route": "human_escalation"
+      }
+    },
+    {
+      "caller": "My name is Ananya Joshi.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "contact_name",
+            "quote": "Ananya Joshi",
+            "text_value": "Ananya Joshi"
+          }
+        ]
+      }
+    },
+    {
+      "caller": "Weekday evenings after six work best.",
+      "extraction": {
+        "intent": "new_project",
+        "facts": [
+          {
+            "field": "callback_preference",
+            "quote": "Weekday evenings after six work best",
+            "text_value": "Weekday evenings after six"
+          }
+        ]
+      }
+    }
+  ],
+  "booking": {
+    "action": "book",
+    "slot_index": 0,
+    "caller_reply": "The first one works for us. Yes, please book it.",
+    "take_conflicting_slot_first": true
+  },
+  "ending": {
+    "reason": "agent_completed"
+  },
+  "expected": {
+    "decision": "qualified",
+    "discovery_status": "complete",
+    "escalations": [
+      "pricing_request"
+    ],
+    "booking_status": "confirmed",
+    "handoff_purpose": "designer_handoff",
+    "crm_synced": true
+  }
+}
