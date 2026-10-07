@@ -13,7 +13,7 @@ select cron.schedule(
   '* * * * *',
   $$
   select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'aangan_app_url') || '/internal/jobs/dispatch?limit=25&time_budget_ms=20000',
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'aangan_app_url') || '/internal/jobs/dispatch?limit=25&time_budget_ms=15000',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'aangan_dispatch_secret')

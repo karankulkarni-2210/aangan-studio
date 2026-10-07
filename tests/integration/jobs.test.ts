@@ -37,6 +37,17 @@ describe("durable outbox and bounded dispatcher", () => {
     expect(rows[0]).toEqual({ status: "succeeded", attempts: 2 });
   });
 
+  it("a job whose lease expires on its final attempt goes dead instead of looping", async () => {
+    await db.query(`insert into public.outbox_jobs (kind, payload, dedupe_key, max_attempts) values ('call.finalize', '{}', 'job-lease', 1)`);
+    await claimJobs(db, "killed-worker", 1, 60);
+    let runs = 0;
+    setClock(() => new Date(Date.now() + 61_000));
+    await dispatch(db, handlersWith(async () => { runs++; }), { limit: 5, timeBudgetMs: 5000, trigger: "test" });
+    expect(runs).toBe(0);
+    const { rows } = await db.query(`select status, attempts, last_error from public.outbox_jobs where dedupe_key = 'job-lease'`);
+    expect(rows[0]).toMatchObject({ status: "dead", attempts: 1, last_error: expect.stringContaining("lease expired") });
+  });
+
   it("retries with backoff, then marks the job dead and visible", async () => {
     await db.query(`insert into public.outbox_jobs (kind, payload, dedupe_key, max_attempts) values ('call.finalize', '{}', 'job-2', 3)`);
     const handlers = handlersWith(async () => {

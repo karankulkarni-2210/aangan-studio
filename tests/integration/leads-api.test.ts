@@ -70,6 +70,13 @@ describe("lead detail", () => {
     expect(d.qualification.current).toMatchObject({ decision: "qualified", policy_version: 1, kind: "automatic" });
   });
 
+  it("designers also see the demo/simulated labels on their own leads", async () => {
+    const id = r.suitable_home.lead_id!;
+    const res = await call(leadRoute.GET, "GET", `/api/v1/leads/${id}`, { as: "designer", params: { id } });
+    expect(res.status).toBe(200);
+    expect(res.body.data_labels).toEqual({ simulated: true, demo_policy: true, policy_version: 1 });
+  });
+
   it("a designer cannot read another designer's lead or its transcript", async () => {
     const id = r.suitable_home.lead_id!;
     const res = await call(leadRoute.GET, "GET", `/api/v1/leads/${id}`, { as: "designer_b", params: { id } });

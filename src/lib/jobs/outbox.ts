@@ -53,6 +53,14 @@ export async function enqueue(
 
 export async function claimJobs(db: Db, workerId: string, limit: number, leaseSeconds: number): Promise<Job[]> {
   const t = now();
+  // A job whose lease expired on its final attempt (e.g. the function was killed mid-job) is
+  // dead, not reclaimed forever.
+  await db.query(
+    `update public.outbox_jobs set status = 'dead', completed_at = $1, locked_by = null, lease_expires_at = null,
+       last_error = coalesce(last_error || '; ', '') || 'lease expired on final attempt'
+     where status = 'running' and lease_expires_at < $1 and attempts >= max_attempts`,
+    [t],
+  );
   const { rows } = await db.query<Job>(
     `update public.outbox_jobs j
         set status = 'running', locked_by = $1, lease_expires_at = $4::timestamptz + make_interval(secs => $3),
@@ -107,7 +115,9 @@ export async function dispatch(
       result.stopped_reason = "time_budget";
       break;
     }
-    const batch = await claimJobs(db, workerId, Math.min(5, opts.limit - result.claimed), opts.leaseSeconds ?? 120);
+    // Claim one job at a time so a function killed at its time limit never leaves claimed-but-
+    // unstarted jobs with inflated attempt counts.
+    const batch = await claimJobs(db, workerId, 1, opts.leaseSeconds ?? 120);
     if (batch.length === 0) break;
     for (const job of batch) {
       result.claimed++;

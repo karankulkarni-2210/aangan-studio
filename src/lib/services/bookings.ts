@@ -57,6 +57,7 @@ export function slotLabel(startIso: string): string {
 }
 
 async function loadLeadForActor(db: Db, actor: Actor, leadId: string) {
+  if (actor.voice?.finalized) throw conflict("call_finalized", "The call has been finalised; bookings now go through staff");
   return db.tx(async (tx) => {
     if (actor.voice) {
       if (actor.voice.leadId !== leadId) throw forbidden("Voice tools may only act on the current call's lead");
@@ -144,22 +145,34 @@ export async function createBooking(db: Db, actor: Actor, leadId: string, body: 
 
   const reason = eligibility(actor, lead, policy);
   if (reason) throw conflict(reason, "This lead is not eligible for a consultation booking");
-  const confirmed = await db.query(`select id from public.bookings where lead_id = $1 and status = 'confirmed'`, [leadId]);
-  if (confirmed.rows[0]) throw conflict("already_booked", "This lead already has a confirmed consultation");
   if (!lead.contact_name) throw conflict("attendee_name_required", "Capture the caller's name before booking");
   if (policy!.config.booking.require_attendee_email && !lead.contact_email) throw conflict("attendee_email_required", "A confirmed email address is required for this event type");
 
   const providers = getProviders(db, { simulated: lead.is_simulated });
   const duration = policy!.config.booking.duration_minutes;
   const slotStart = new Date(body.slot_start).toISOString();
-  const { rows: created } = await db.query(
-    `insert into public.bookings (lead_id, call_id, mode, status, request_key, event_type_id, slot_start, slot_end, caller_confirmed_at,
-       attendee_name, attendee_email, attendee_phone, requested_by)
-     values ($1,$2,$3,'requested',$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
-    [leadId, actor.voice?.callId ?? null, providers.calendar.mode === "live" ? "live" : "mock", requestKey, process.env.CALCOM_EVENT_TYPE_ID ?? null,
-      slotStart, new Date(new Date(slotStart).getTime() + duration * 60000), now(), lead.contact_name, lead.contact_email, lead.caller_phone, requestedBy],
-  );
-  const booking = created[0];
+  // One booking in flight or confirmed per lead: the lead row is locked for the check, and a
+  // partial unique index (bookings_one_active_per_lead) backs it up against concurrent requests.
+  const booking = await db.tx(async (tx) => {
+    await tx.query(`select id from public.leads where id = $1 for update`, [leadId]);
+    const { rows: active } = await tx.query(
+      `select status from public.bookings where lead_id = $1 and status in ('requested', 'pending_reconciliation', 'confirmed') limit 1`,
+      [leadId],
+    );
+    if (active[0]?.status === "confirmed") throw conflict("already_booked", "This lead already has a confirmed consultation");
+    if (active[0]) throw conflict("booking_in_progress", "A booking for this lead is still being confirmed; it may already exist in the calendar");
+    const { rows } = await tx.query(
+      `insert into public.bookings (lead_id, call_id, mode, status, request_key, event_type_id, slot_start, slot_end, caller_confirmed_at,
+         attendee_name, attendee_email, attendee_phone, requested_by)
+       values ($1,$2,$3,'requested',$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+      [leadId, actor.voice?.callId ?? null, providers.calendar.mode === "live" ? "live" : "mock", requestKey, process.env.CALCOM_EVENT_TYPE_ID ?? null,
+        slotStart, new Date(new Date(slotStart).getTime() + duration * 60000), now(), lead.contact_name, lead.contact_email, lead.caller_phone, requestedBy],
+    );
+    return rows[0];
+  }).catch((err: unknown) => {
+    if ((err as { code?: string }).code === "23505") throw conflict("booking_in_progress", "A booking for this lead is already in progress");
+    throw err;
+  });
 
   const conflictResponse = async () => {
     const alternatives = ((await sameDaySlots(db, lead.is_simulated, slotStart, duration)) ?? []).filter((s) => s.start !== slotStart).slice(0, policy!.config.booking.max_slots_offered);
@@ -169,18 +182,21 @@ export async function createBooking(db: Db, actor: Actor, leadId: string, body: 
     return new ApiError(409, "slot_unavailable", "The selected slot is no longer available; offer another", details);
   };
 
-  // Re-check availability immediately before creating.
+  // Re-check availability immediately before creating. If the check itself fails, do not book
+  // blind: report "not booked" and leave it to the front desk.
   const fresh = await sameDaySlots(db, lead.is_simulated, slotStart, duration);
   if (fresh && !fresh.some((s) => s.start === slotStart)) throw await conflictResponse();
 
-  const result = await providers.calendar.createBooking({
+  const result: Awaited<ReturnType<typeof providers.calendar.createBooking>> = fresh
+    ? await providers.calendar.createBooking({
     start: slotStart,
     durationMinutes: duration,
     timeZone: "Asia/Kolkata",
     attendee: { name: lead.contact_name, email: lead.contact_email, phone: lead.caller_phone },
     bookingKey: booking.id,
     metadata: { aangan_lead_id: leadId, aangan_lead_ref: lead.reference },
-  });
+  })
+    : { status: "failed", message: "availability re-check failed; not booked", retriable: true };
   if (result.status === "conflict") throw await conflictResponse();
 
   const final = await db.tx(async (tx) => {
@@ -267,7 +283,7 @@ export async function reconcileBookingJob(db: Db, job: Job): Promise<void> {
   });
   if (res.status !== "ok") throw new RetryableJobError(`reconciliation lookup failed: ${"message" in res ? res.message : ""}`);
   await db.tx(async (tx) => {
-    if (res.data) {
+    if (res.data?.uid) {
       await tx.query(`update public.bookings set status = 'confirmed', provider_booking_uid = $2, last_error = 'confirmed by reconciliation' where id = $1`, [bookingId, res.data.uid]);
       await markConfirmed(tx, b.lead_id, bookingId, new Date(b.slot_start).toISOString());
       // The booking_pending task stays open: the caller was told it was not booked and must be informed.
@@ -279,6 +295,6 @@ export async function reconcileBookingJob(db: Db, job: Job): Promise<void> {
       await tx.query(`update public.bookings set status = 'failed', last_error = 'not found during reconciliation' where id = $1`, [bookingId]);
       await tx.query(`update public.leads set booking_status = case when booking_status = 'confirmed' then booking_status else 'failed' end where id = $1`, [b.lead_id]);
     }
-    await audit(tx, { actor_kind: "system", action: "booking.reconciled", entity_type: "booking", entity_id: bookingId, after: { found: Boolean(res.data) } });
+    await audit(tx, { actor_kind: "system", action: "booking.reconciled", entity_type: "booking", entity_id: bookingId, after: { found: Boolean(res.data?.uid) } });
   });
 }

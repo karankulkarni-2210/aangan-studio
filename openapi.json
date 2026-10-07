@@ -2335,7 +2335,7 @@
           "Operations"
         ],
         "summary": "Run the bounded outbox dispatcher",
-        "description": "Bearer DISPATCH_SECRET (or CRON_SECRET). Query: limit (<=100), time_budget_ms (<=50000). GET is accepted for Vercel Cron.",
+        "description": "Bearer DISPATCH_SECRET (or CRON_SECRET). Query: limit (<=100), time_budget_ms (<=20000). GET is accepted for Vercel Cron.",
         "operationId": "postInternalJobsDispatch",
         "security": [
           {
@@ -6250,8 +6250,10 @@
                           "type": "string",
                           "enum": [
                             "estimated",
-                            "invoiced"
-                          ]
+                            "invoiced",
+                            "mixed"
+                          ],
+                          "description": "mixed = an invoice covers part of the period; the rest is estimated"
                         },
                         "amount_paise": {
                           "type": "integer",
@@ -6278,6 +6280,10 @@
                             }
                           ]
                         },
+                        "invoice_covered_fraction": {
+                          "type": "number",
+                          "description": "Share of the period covered by invoices (0-1)"
+                        },
                         "variance_paise": {
                           "anyOf": [
                             {
@@ -6289,7 +6295,8 @@
                             {
                               "type": "null"
                             }
-                          ]
+                          ],
+                          "description": "Invoiced minus the estimate for the invoiced sub-period"
                         },
                         "operating_cost": {
                           "type": "boolean"
@@ -6326,6 +6333,7 @@
                         "amount_paise",
                         "estimated_paise",
                         "invoiced_paise",
+                        "invoice_covered_fraction",
                         "variance_paise",
                         "operating_cost",
                         "synthetic_rates",

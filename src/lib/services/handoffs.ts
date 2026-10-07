@@ -78,7 +78,8 @@ export async function ensureHandoff(
   }
   if (recipient.kind === "designer") {
     await q.query(`update public.staff set last_assigned_at = $2 where id = $1`, [recipient.staffId, now()]);
-    await q.query(`update public.leads set owner_staff_id = coalesce(owner_staff_id, $2) where id = $1`, [leadId, recipient.staffId]);
+    // RLS lets a designer see only leads they own, so the recipient must be the owner.
+    await q.query(`update public.leads set owner_staff_id = $2 where id = $1`, [leadId, recipient.staffId]);
   }
   await q.query(
     `update public.leads set handoff_status = case when handoff_status in ('acknowledged', 'sent') then handoff_status else 'pending' end where id = $1`,
@@ -209,7 +210,10 @@ export async function sendHandoffJob(db: Db, job: Job): Promise<void> {
     const h = rows[0];
     if (!h) throw new PermanentJobError("handoff not found");
     if (h.delivery_status === "sent" || h.delivery_status === "simulated") return null;
-    const email = await renderHandoffEmail(tx, handoffId);
+    const rendered = await renderHandoffEmail(tx, handoffId);
+    // Retries must resend the identical payload under the same Idempotency-Key, otherwise Resend
+    // rejects them (409 invalid_idempotent_request) after a first attempt that may have delivered.
+    const email = h.subject && h.body_text && h.body_html ? { ...rendered, subject: h.subject, text: h.body_text, html: h.body_html } : rendered;
     if (!(await recipientStillApproved(tx, h, email.policy))) {
       await tx.query(`update public.handoffs set delivery_status = 'failed', last_error = 'recipient no longer approved' where id = $1`, [handoffId]);
       await openTask(tx, { lead_id: h.lead_id, kind: "integration_failure", assigned_role: "front_desk", summary: "Handoff recipient is no longer on the approved roster; reassign manually.", dedupe_key: `handoff:${handoffId}:recipient` });
@@ -230,7 +234,7 @@ export async function sendHandoffJob(db: Db, job: Job): Promise<void> {
     subject: email.subject,
     text: email.text,
     html: email.html,
-    idempotencyKey: `handoff/${handoffId}`,
+    idempotencyKey: `handoff/${handoffId}/${h.recipient_staff_id ?? "queue"}`,
     tags: { lead_id: h.lead_id, purpose: h.purpose },
   });
 
@@ -247,7 +251,7 @@ export async function sendHandoffJob(db: Db, job: Job): Promise<void> {
       );
       await tx.query(`update public.leads set handoff_status = case when handoff_status = 'acknowledged' then handoff_status else 'sent' end where id = $1`, [h.lead_id]);
       if (deadline && h.purpose !== "ack_escalation") {
-        await enqueue(tx, "handoff.ack_check", { handoff_id: handoffId }, `handoff.ack_check:${handoffId}`, { runAfter: deadline });
+        await enqueue(tx, "handoff.ack_check", { handoff_id: handoffId }, `handoff.ack_check:${handoffId}:${sentAt.getTime()}`, { runAfter: deadline });
       }
       await recordUsage(tx, {
         provider: "resend",
@@ -258,7 +262,7 @@ export async function sendHandoffJob(db: Db, job: Job): Promise<void> {
         occurredAt: sentAt,
         leadId: h.lead_id,
         isSimulated: h.is_simulated,
-        dedupeKey: `usage:resend:${handoffId}`,
+        dedupeKey: `usage:resend:${handoffId}:${result.data.id}`,
         resourceRef: result.data.id,
       });
       return;
@@ -292,7 +296,9 @@ export async function ackCheckJob(db: Db, job: Job): Promise<void> {
   await db.tx(async (tx) => {
     const { rows } = await tx.query(`select h.*, l.policy_id from public.handoffs h join public.leads l on l.id = h.lead_id where h.id = $1 for update`, [handoffId]);
     const h = rows[0];
-    if (!h || h.acknowledged_at || h.ack_overdue_at) return;
+    if (!h || !h.ack_required || h.acknowledged_at || h.ack_overdue_at) return;
+    // A re-targeted handoff has a new deadline (and its own check job).
+    if (!h.ack_deadline_at || new Date(h.ack_deadline_at).getTime() > now().getTime()) return;
     await tx.query(`update public.handoffs set ack_overdue_at = $2 where id = $1`, [handoffId, now()]);
     await tx.query(`update public.leads set ack_overdue = true where id = $1`, [h.lead_id]);
     await openTask(tx, {
@@ -321,9 +327,10 @@ export async function acknowledgeLead(db: Db, staff: StaffActor, leadId: string,
     );
     const h = rows[0];
     if (!h) throw new ApiError(409, "no_pending_handoff", "This lead has no handoff to acknowledge");
+    const { rows: owner } = await tx.query(`select owner_staff_id from public.leads where id = $1`, [leadId]);
     const allowed =
       staff.role === "admin" ||
-      (h.recipient_kind === "designer" && h.recipient_staff_id === staff.id) ||
+      (h.recipient_kind === "designer" && staff.role === "designer" && (h.recipient_staff_id === staff.id || owner[0].owner_staff_id === staff.id)) ||
       (h.recipient_kind === "front_desk_queue" && staff.role === "front_desk");
     if (!allowed) throw forbidden("Only the assigned recipient (or an administrator) can accept this handoff");
     if (h.acknowledged_at) {
@@ -337,8 +344,51 @@ export async function acknowledgeLead(db: Db, staff: StaffActor, leadId: string,
        where id = $1`,
       [leadId, staff.role, staff.id],
     );
+    // An earlier front-desk review handoff is superseded once the designer has accepted.
+    if (h.purpose === "designer_handoff") {
+      await tx.query(
+        `update public.handoffs set ack_required = false, last_error = coalesce(last_error, 'superseded: designer accepted the lead')
+         where lead_id = $1 and id <> $2 and purpose = 'front_desk_review' and acknowledged_at is null`,
+        [leadId, h.id],
+      );
+    }
     await resolveTasks(tx, leadId, "ack_overdue", staff.id, "Handoff acknowledged");
     await audit(tx, { actor_kind: "staff", actor_staff_id: staff.id, action: "handoff.acknowledged", entity_type: "handoff", entity_id: h.id, after: { lead_id: leadId, latency_seconds: h.sent_at ? Math.round((at.getTime() - new Date(h.sent_at).getTime()) / 1000) : null }, request_id: requestId });
     return { handoff_id: h.id, acknowledged_at: at.toISOString(), acknowledged_by: staff.id, already_acknowledged: false };
   });
+}
+
+/**
+ * Keeps the open designer handoff aligned with lead ownership after a human reassignment.
+ * New owner is an approved designer: the handoff is re-targeted and re-sent to them.
+ * Otherwise (front desk/admin, or unassigned): the open designer handoff is superseded.
+ */
+export async function retargetDesignerHandoff(q: Queryable, leadId: string, newOwnerId: string | null): Promise<"retargeted" | "superseded" | "none"> {
+  const { rows } = await q.query(
+    `select id, recipient_staff_id from public.handoffs
+      where lead_id = $1 and purpose = 'designer_handoff' and ack_required and acknowledged_at is null for update`,
+    [leadId],
+  );
+  const h = rows[0];
+  if (!h || h.recipient_staff_id === newOwnerId) return "none";
+  const { rows: d } = newOwnerId
+    ? await q.query(`select id, email from public.staff where id = $1 and role = 'designer' and active and approved_for_handoff`, [newOwnerId])
+    : { rows: [] as Array<{ id: string; email: string }> };
+  if (d[0]) {
+    await q.query(
+      `update public.handoffs set recipient_staff_id = $2, recipient_email = $3, delivery_status = 'queued', delivery_mode = null,
+         provider_message_id = null, sent_at = null, ack_deadline_at = null, ack_overdue_at = null, subject = null, body_text = null,
+         body_html = null, attempts = 0, last_error = 're-targeted after reassignment'
+       where id = $1`,
+      [h.id, d[0].id, d[0].email],
+    );
+    await q.query(`update public.leads set handoff_status = 'pending', ack_overdue = false where id = $1`, [leadId]);
+    await enqueue(q, "handoff.send", { handoff_id: h.id }, `handoff.send:${h.id}:${d[0].id}`, { maxAttempts: 6 });
+    await resolveTasks(q, leadId, "ack_overdue", null, "Lead reassigned to another designer");
+    return "retargeted";
+  }
+  await q.query(`update public.handoffs set ack_required = false, last_error = 'superseded: lead reassigned' where id = $1`, [h.id]);
+  await q.query(`update public.leads set ack_overdue = false where id = $1`, [leadId]);
+  await resolveTasks(q, leadId, "ack_overdue", null, "Lead reassigned");
+  return "superseded";
 }

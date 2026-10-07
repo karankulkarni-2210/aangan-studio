@@ -247,16 +247,37 @@ export async function computeDashboard(db: Db, staff: StaffActor, query: z.infer
   };
 }
 
+type Interval = [number, number];
+
+function mergeIntervals(xs: Interval[]): Interval[] {
+  const sorted = xs.filter(([a, b]) => b > a).sort((a, b) => a[0] - b[0]);
+  const out: Interval[] = [];
+  for (const [a, b] of sorted) {
+    const last = out[out.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+function overlapMs(a: number, b: number, cover: Interval[]): number {
+  return cover.reduce((n, [c, d]) => n + Math.max(0, Math.min(b, d) - Math.max(a, c)), 0);
+}
+
+/**
+ * Per provider/category: invoices replace the estimate ONLY for the part of the period they cover;
+ * the rest stays estimated (basis "mixed" when partially covered). Bundled meters are listed at
+ * zero; development tools are excluded from the operating total.
+ */
 async function computeCosts(db: Db, from: Date, to: Date, simFilter: string, qualified: number, bookingsConfirmed: number) {
-  const periodDays = (to.getTime() - from.getTime()) / 86400000;
+  const f0 = from.getTime();
+  const t0 = to.getTime();
+  const periodMs = t0 - f0;
   const { rows: usage } = await db.query(
     `select provider, category, meter, is_simulated, is_synthetic_rate, bundled_in, operating_cost, currency, fx_rate_to_inr, fx_source,
-            count(*)::int as events, sum(quantity) as quantity,
-            sum(amount_micros) as micros, sum(amount_micros * fx_rate_to_inr) as inr_micros,
-            count(*) filter (where amount_micros is null)::int as unpriced
+            quantity, amount_micros, occurred_at
        from public.usage_events
-      where entry_kind = 'usage' and occurred_at >= $1 and occurred_at < $2 and ${simFilter}
-      group by 1,2,3,4,5,6,7,8,9,10`,
+      where entry_kind = 'usage' and occurred_at >= $1 and occurred_at < $2 and ${simFilter}`,
     [from, to],
   );
   const { rows: fixed } = await db.query(
@@ -273,8 +294,10 @@ async function computeCosts(db: Db, from: Date, to: Date, simFilter: string, qua
   type Line = {
     provider: string;
     category: string;
-    estimated_inr_micros: number;
-    invoiced_inr_micros: number | null;
+    cover: Interval[];
+    estimated_uncovered: number; // INR micros
+    estimated_covered: number; // INR micros
+    invoiced: number | null; // INR micros
     bundled_quantity: number;
     unpriced_events: number;
     synthetic_rates: boolean;
@@ -285,80 +308,113 @@ async function computeCosts(db: Db, from: Date, to: Date, simFilter: string, qua
   const lines = new Map<string, Line>();
   const line = (provider: string, category: string, operating: boolean) => {
     const k = `${provider}|${category}`;
-    if (!lines.has(k)) lines.set(k, { provider, category, estimated_inr_micros: 0, invoiced_inr_micros: null, bundled_quantity: 0, unpriced_events: 0, synthetic_rates: false, simulated_usage: false, operating_cost: operating, components: [] });
+    if (!lines.has(k)) {
+      lines.set(k, { provider, category, cover: [], estimated_uncovered: 0, estimated_covered: 0, invoiced: null, bundled_quantity: 0, unpriced_events: 0, synthetic_rates: false, simulated_usage: false, operating_cost: operating, components: [] });
+    }
     return lines.get(k)!;
   };
   const fx = new Map<string, { currency: string; fx_rate_to_inr: number; fx_source: string }>();
+  const noteFx = (currency: string | null, rate: unknown, source: string | null) => {
+    if (currency && rate !== null && rate !== undefined) fx.set(`${currency}|${rate}`, { currency, fx_rate_to_inr: Number(rate), fx_source: source ?? "" });
+  };
 
-  for (const u of usage) {
-    const l = line(u.provider, u.category, u.operating_cost);
-    if (u.currency) fx.set(`${u.currency}|${u.fx_rate_to_inr}`, { currency: u.currency, fx_rate_to_inr: Number(u.fx_rate_to_inr), fx_source: u.fx_source });
-    l.unpriced_events += u.unpriced;
-    l.synthetic_rates ||= u.is_synthetic_rate;
-    l.simulated_usage ||= u.is_simulated;
-    if (u.bundled_in) {
-      l.bundled_quantity += Number(u.quantity);
-      l.components.push({ kind: "bundled", meter: u.meter, quantity: Number(u.quantity), included_in: u.bundled_in, simulated: u.is_simulated });
-      continue;
-    }
-    l.estimated_inr_micros += Number(u.inr_micros ?? 0);
-    l.components.push({ kind: "usage", meter: u.meter, events: u.events, quantity: Number(u.quantity), currency: u.currency, amount_micros: u.micros === null ? null : Number(u.micros), simulated: u.is_simulated });
-  }
-  for (const f of fixed) {
-    const start = Math.max(from.getTime(), new Date(f.effective_from).getTime());
-    const end = Math.min(to.getTime(), f.effective_to ? new Date(f.effective_to).getTime() + 86400000 : to.getTime());
-    const days = Math.max(0, (end - start) / 86400000);
-    if (days === 0) continue;
-    const micros = (Number(f.unit_price_micros) * days) / MONTH_DAYS;
-    const l = line(f.provider, f.category, f.operating_cost);
-    l.estimated_inr_micros += micros * Number(f.fx_rate_to_inr);
-    l.synthetic_rates ||= f.is_synthetic;
-    fx.set(`${f.currency}|${f.fx_rate_to_inr}`, { currency: f.currency, fx_rate_to_inr: Number(f.fx_rate_to_inr), fx_source: f.fx_source });
-    l.components.push({ kind: "fixed_prorated", meter: f.meter, days: Math.round(days * 100) / 100, monthly_price_micros: Number(f.unit_price_micros), currency: f.currency, synthetic: f.is_synthetic });
-  }
+  // 1. Invoices first, so each line knows which sub-periods are invoiced.
   for (const inv of invoices) {
     const ps = new Date(inv.period_start).getTime();
     const pe = new Date(inv.period_end).getTime();
-    const overlap = Math.max(0, Math.min(pe, to.getTime()) - Math.max(ps, from.getTime())) / (pe - ps);
+    const a = Math.max(ps, f0);
+    const b = Math.min(pe, t0);
+    const fraction = Math.max(0, b - a) / (pe - ps);
     const l = line(inv.provider, inv.category, inv.operating_cost);
-    l.invoiced_inr_micros = (l.invoiced_inr_micros ?? 0) + Number(inv.amount_micros) * Number(inv.fx_rate_to_inr) * overlap;
-    l.components.push({ kind: "invoice", invoice_ref: inv.invoice_ref, overlap_fraction: Math.round(overlap * 10000) / 10000, currency: inv.currency });
+    l.cover.push([a, b]);
+    l.invoiced = (l.invoiced ?? 0) + Number(inv.amount_micros) * Number(inv.fx_rate_to_inr) * fraction;
+    noteFx(inv.currency, inv.fx_rate_to_inr, inv.fx_source);
+    l.components.push({ kind: "invoice", invoice_ref: inv.invoice_ref, overlap_fraction: Math.round(fraction * 10000) / 10000, currency: inv.currency });
+  }
+  for (const l of lines.values()) l.cover = mergeIntervals(l.cover);
+
+  // 2. Per-event usage, split by whether its timestamp falls in an invoiced sub-period.
+  const usageAgg = new Map<string, Record<string, unknown> & { events: number; quantity: number; amount_micros: number | null }>();
+  for (const u of usage) {
+    const l = line(u.provider, u.category, u.operating_cost);
+    noteFx(u.currency, u.fx_rate_to_inr, u.fx_source);
+    l.synthetic_rates ||= u.is_synthetic_rate;
+    l.simulated_usage ||= u.is_simulated;
+    if (u.amount_micros === null) l.unpriced_events++;
+    const key = `${l.provider}|${l.category}|${u.meter}|${u.bundled_in ?? ""}|${u.is_simulated}`;
+    const agg = usageAgg.get(key) ?? { kind: u.bundled_in ? "bundled" : "usage", line: `${l.provider}|${l.category}`, meter: u.meter, events: 0, quantity: 0, currency: u.currency, amount_micros: 0, included_in: u.bundled_in, simulated: u.is_simulated };
+    agg.events++;
+    agg.quantity += Number(u.quantity ?? 0);
+    if (u.amount_micros !== null && agg.amount_micros !== null) agg.amount_micros += Number(u.amount_micros);
+    usageAgg.set(key, agg);
+    if (u.bundled_in) {
+      l.bundled_quantity += Number(u.quantity ?? 0);
+      continue;
+    }
+    const inr = Number(u.amount_micros ?? 0) * Number(u.fx_rate_to_inr ?? 0);
+    const t = new Date(u.occurred_at).getTime();
+    if (l.cover.some(([a, b]) => t >= a && t < b)) l.estimated_covered += inr;
+    else l.estimated_uncovered += inr;
+  }
+  for (const agg of usageAgg.values()) {
+    const { line: lk, ...component } = agg;
+    lines.get(lk as string)!.components.push(component);
+  }
+
+  // 3. Fixed monthly charges, prorated by time and split by invoice coverage.
+  for (const f of fixed) {
+    const a = Math.max(f0, new Date(f.effective_from).getTime());
+    const b = Math.min(t0, f.effective_to ? new Date(f.effective_to).getTime() + 86400000 : t0);
+    if (b <= a) continue;
+    const l = line(f.provider, f.category, f.operating_cost);
+    const perMs = (Number(f.unit_price_micros) * Number(f.fx_rate_to_inr)) / (MONTH_DAYS * 86400000);
+    const covered = overlapMs(a, b, l.cover);
+    l.estimated_covered += perMs * covered;
+    l.estimated_uncovered += perMs * (b - a - covered);
+    l.synthetic_rates ||= f.is_synthetic;
+    noteFx(f.currency, f.fx_rate_to_inr, f.fx_source);
+    l.components.push({ kind: "fixed_prorated", meter: f.meter, days: Math.round(((b - a) / 86400000) * 100) / 100, monthly_price_micros: Number(f.unit_price_micros), currency: f.currency, synthetic: f.is_synthetic });
   }
 
   const toPaise = (inrMicros: number) => Math.round(inrMicros / 10000);
   const out = [...lines.values()].map((l) => {
-    const estimated = toPaise(l.estimated_inr_micros);
-    const invoiced = l.invoiced_inr_micros === null ? null : toPaise(l.invoiced_inr_micros);
+    const coveredMs = overlapMs(f0, t0, l.cover);
+    const estimated = toPaise(l.estimated_covered + l.estimated_uncovered);
+    const invoiced = l.invoiced === null ? null : toPaise(l.invoiced);
+    const basis = invoiced === null ? "estimated" : coveredMs >= periodMs ? "invoiced" : "mixed";
     return {
       provider: l.provider,
       category: l.category,
-      basis: invoiced === null ? "estimated" : "invoiced",
-      amount_paise: invoiced ?? estimated,
+      basis,
+      amount_paise: invoiced === null ? estimated : invoiced + toPaise(l.estimated_uncovered),
       estimated_paise: estimated,
       invoiced_paise: invoiced,
-      variance_paise: invoiced === null ? null : invoiced - estimated,
+      invoice_covered_fraction: Math.round((coveredMs / periodMs) * 10000) / 10000,
+      variance_paise: invoiced === null ? null : invoiced - toPaise(l.estimated_covered),
       operating_cost: l.operating_cost,
       synthetic_rates: l.synthetic_rates,
       includes_simulated_usage: l.simulated_usage,
       unpriced_events: l.unpriced_events,
       bundled_quantity: l.bundled_quantity,
       components: l.components,
+      _estimated_uncovered: toPaise(l.estimated_uncovered),
     };
   });
   const operating = out.filter((l) => l.operating_cost);
   const total = operating.reduce((n, l) => n + l.amount_paise, 0);
   const byCategory: Record<string, number> = {};
   for (const l of operating) byCategory[l.category] = (byCategory[l.category] ?? 0) + l.amount_paise;
+  const estimatedPart = operating.reduce((n, l) => n + (l.invoiced_paise === null ? l.amount_paise : l._estimated_uncovered), 0);
   return {
     currency: "INR",
     unit: "paise",
-    period_days: Math.round(periodDays * 100) / 100,
+    period_days: Math.round((periodMs / 86400000) * 100) / 100,
     total_operating_paise: total,
-    estimated_operating_paise: operating.filter((l) => l.basis === "estimated").reduce((n, l) => n + l.amount_paise, 0),
-    invoiced_operating_paise: operating.filter((l) => l.basis === "invoiced").reduce((n, l) => n + l.amount_paise, 0),
+    estimated_operating_paise: estimatedPart,
+    invoiced_operating_paise: total - estimatedPart,
     excluded_development_paise: out.filter((l) => !l.operating_cost).reduce((n, l) => n + l.amount_paise, 0),
     by_category: byCategory,
-    lines: out,
+    lines: out.map(({ _estimated_uncovered, ...rest }) => (void _estimated_uncovered, rest)),
     cost_per_qualified_lead_paise: qualified === 0 ? null : Math.round(total / qualified),
     cost_per_confirmed_consultation_paise: bookingsConfirmed === 0 ? null : Math.round(total / bookingsConfirmed),
     qualified_leads: qualified,

@@ -98,7 +98,7 @@ There is one Next.js/TypeScript project. Persistence and auth use Supabase (Post
 
 `src/lib/domain/qualification.ts` is a pure function of the pinned policy, resolved facts, intent, discovery state and the injection flag.
 - **not_fit** only when a usable (stated or confirmed, unambiguous) fact definitively fails a rule configured as `not_fit`, for example an unsupported service or a known outside location.
-- **needs_review** when any fact is missing, declined, unconfirmed or contradictory, or when the intent is not a new project, discovery is incomplete, policy is missing or injection is suspected.
+- **needs_review** when any fact is missing, declined, unconfirmed or contradictory, or when the intent is not a new project, discovery is not complete (mid-call or after the call), policy is missing or injection is suspected.
 - **qualified** otherwise.
 
 Unknown facts are NULL, never zero. Model confidence never decides suitability. Human edits create `reassessment` or `human_override` rows; the call-time assessment is never rewritten. See `docs/qualification-policy.md`.
@@ -163,6 +163,8 @@ All of the frozen endpoints from the backend prompt are implemented unchanged:
 - **`status` filter on `GET /api/v1/leads`:** it is the derived inbox `stage`. The individual state fields are also filterable or returned.
 - **`request-handoff` delivers after the call:** delivery happens once the final decision is known, and recipients are always server-chosen.
 - **Dashboard costs are admin-only:** the front desk receives `costs: null` with `costs_restricted: true`.
+- **One booking per lead in flight:** 409 `booking_in_progress` (a booking is requested or pending reconciliation) or `already_booked`.
+- **Finalised calls:** voice tools return 409 `call_finalized` once end-of-call processing has run; only transcript-only `capture-facts` (`extract: false`) is accepted. Later changes go through staff edits, which re-run handoff and CRM work.
 
 ## 5. Security and privacy
 
@@ -173,9 +175,10 @@ All of the frozen endpoints from the backend prompt are implemented unchanged:
   - Webhooks use HMAC-SHA256 over the raw body (Vaani's scheme), with event-id dedupe and a 24 h age window.
   - Voice tools need `VOICE_TOOL_SECRET` plus a per-call token derived from the call id. The token is re-derivable for retries, and the call closes to tools 15 min after it ends.
   - The dispatcher needs `DISPATCH_SECRET` / `CRON_SECRET`.
+- **Ownership and handoffs:** the designer handoff recipient is always the lead owner (RLS shows designers only their own leads). A reassignment to another approved designer re-targets and re-sends the open handoff; a reassignment to front desk or admin supersedes it.
 - **AI cannot choose recipients:** `request-handoff` is a strict schema, so unknown keys such as `recipient_email` return 400. Recipients come from the approved roster or the policy's front-desk queue and are re-validated at send time.
 - **Fail closed:** in live mode, every route except `/health` and `/ready` returns 503 until the database, JWT verification, voice tool secret, dispatcher secret, Vaani webhook secret and HTTPS base URL are configured. The simulated provider and demo endpoint do not exist in live mode. Missing provider credentials in live mode mean `not_configured`, so jobs fail visibly instead of being mocked.
-- **Limits:** per-route body-size limits (413) and durable Postgres rate limits per principal (429 with `Retry-After`).
+- **Limits:** per-route body-size limits (413) and durable Postgres rate limits per principal, bucketed by method and route template (429 with `Retry-After`).
 - **Logs:** structured JSON with redaction of tokens, phone numbers, emails and transcript text.
 - **Retention:** configurable in the policy. Daily maintenance purges transcript text, evidence quotes, quoted task text and provider payloads; facts, decisions and audit are kept.
 - **Transcripts and email:** transcripts appear only on the authenticated lead page. Emails carry a deterministic summary, a masked phone number and an authenticated link.
@@ -186,12 +189,12 @@ All of the frozen endpoints from the backend prompt are implemented unchanged:
 - **Outbox:**
   - Jobs are claimed atomically (`FOR UPDATE SKIP LOCKED`) with a lease.
   - An interrupted dispatcher's job is reclaimed after the lease expires.
-  - Retries use exponential backoff, then the job goes `dead` and is visible in `/api/v1/integrations` and the dashboard freshness block.
-  - The dispatcher is bounded by job count and time budget.
+  - Retries use exponential backoff, then the job goes `dead` and is visible in `/api/v1/integrations` and the dashboard freshness block. A job whose lease expires on its final attempt also goes `dead`.
+  - The dispatcher claims one job at a time and is bounded by job count and a 15 s time budget, well inside the function's maximum duration and the 120 s lease.
 - **At-least-once delivery.** Exactly-once external delivery is **not** claimed:
-  - **Resend:** local dedupe (one handoff per lead and purpose) plus `Idempotency-Key` (24 h window).
+  - **Resend:** local dedupe (one handoff per lead and purpose) plus `Idempotency-Key` (24 h window). The message is rendered once and retries resend the identical payload.
   - **HubSpot:** deals are upserted on a unique `aangan_lead_id` property, so retries cannot duplicate them. Contact search is eventually consistent, so a timed-out contact create can rarely duplicate a contact.
-  - **Cal.com:** has no idempotency key. A timeout becomes `pending_reconciliation` and the job looks the booking up by our booking key in metadata. It never re-creates without fresh caller confirmation.
+  - **Cal.com:** has no idempotency key. A timeout becomes `pending_reconciliation` and the job looks the booking up by our booking key in metadata. It never re-creates without fresh caller confirmation, and a partial unique index allows only one requested, pending or confirmed booking per lead. If the availability re-check fails, nothing is booked.
 - **Failure isolation:** CRM, email and calendar are separate jobs. Any of them can fail without blocking the others or losing the lead.
 - **Scheduling:**
   - Vercel Hobby cron runs at most once a day, so `vercel.json` holds a daily backstop.
@@ -210,7 +213,7 @@ Costs follow the plan's formula: `fixed costs + connected minutes × voice bundl
 - **Gemini:** tokens at the published `gemini-3.8-flash` rates, with a **synthetic** FX assumption.
 - **Plan charges:** Resend, Cal.com, HubSpot, Vercel, Supabase and GitHub are **synthetic placeholders**, prorated by day.
 - **Claude:** tracked as a development tool and excluded from operating cost.
-- **Invoices:** recorded with `POST /api/v1/cost-entries`. They replace estimates for the overlapping period and the variance is shown.
+- **Invoices:** recorded with `POST /api/v1/cost-entries`. They replace the estimate only for the sub-period they cover (`basis: mixed` when partial), and the variance against that sub-period's estimate is shown.
 - **Cost per qualified lead:** null when there are no qualified leads.
 - **Confirmed contract value:** shown separately and labelled as not collected revenue or profit.
 

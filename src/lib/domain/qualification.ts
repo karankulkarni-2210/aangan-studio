@@ -117,7 +117,7 @@ export function evaluateQualification(input: QualificationInput): QualificationR
 
   const reasons = policy.qualification_rules.map((r) => evaluateRule(r, input, policy));
   if (input.discoveryIncomplete) {
-    reasons.push({ rule_id: GLOBAL.DISCOVERY_INCOMPLETE, field: null, result: "missing", effect: "needs_review", message: "The call ended before discovery was complete." });
+    reasons.push({ rule_id: GLOBAL.DISCOVERY_INCOMPLETE, field: null, result: "missing", effect: "needs_review", message: "Discovery is not complete: required answers are missing, unconfirmed or contradictory." });
   }
   if (input.injectionSuspected) {
     reasons.push({ rule_id: GLOBAL.INJECTION_REVIEW, field: null, result: "unconfirmed", effect: "needs_review", message: "The transcript contained instruction-like text; a human must review before relying on it." });

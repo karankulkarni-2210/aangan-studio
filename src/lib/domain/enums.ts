@@ -43,6 +43,7 @@ export const BLOCKING_AMBIGUITIES = [
   "not_an_area_measure",
   "unparseable",
   "multiple_services",
+  "multiple_places",
 ] as const;
 export const INFORMATIONAL_AMBIGUITIES = ["approximate", "range_given", "relative_date", "unit_converted"] as const;
 export const AMBIGUITIES = [...BLOCKING_AMBIGUITIES, ...INFORMATIONAL_AMBIGUITIES] as const;

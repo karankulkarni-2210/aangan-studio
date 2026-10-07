@@ -92,6 +92,26 @@ describe("dashboard", () => {
     expect(d2.costs.currency_assumptions).toEqual(expect.arrayContaining([expect.objectContaining({ currency: "USD", fx_rate_to_inr: 88 })]));
   });
 
+  it("a partial invoice replaces the estimate only for the sub-period it covers", async () => {
+    const to = new Date();
+    const from = new Date(to.getTime() - 30 * 86400000);
+    const mid = new Date(from.getTime() + 15 * 86400000);
+    const inv = await call(costRoute.POST, "POST", "/api/v1/cost-entries", {
+      as: "admin",
+      body: { provider: "supabase", category: "database_storage", amount_micros: 10_000_000, currency: "USD", fx_rate_to_inr: 88, fx_source: "Invoice INV-2 (test)", period_start: from.toISOString(), period_end: mid.toISOString(), invoice_ref: "INV-2" },
+    });
+    expect(inv.status).toBe(201);
+    const d = await dash(`?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`);
+    const line = d.costs.lines.find((l: { provider: string }) => l.provider === "supabase");
+    // Synthetic plan: $25/month x 88 ≈ ₹2,168.38 over 30 days; half is invoiced (₹880), half stays estimated.
+    expect(line.basis).toBe("mixed");
+    expect(line.invoice_covered_fraction).toBeCloseTo(0.5, 2);
+    expect(line.invoiced_paise).toBe(88000);
+    expect(line.amount_paise).toBeGreaterThan(88000 + 100000);
+    expect(line.amount_paise).toBeLessThan(88000 + 120000);
+    expect(line.variance_paise).toBeLessThan(0);
+  });
+
   it("front desk sees operations but not costs", async () => {
     const d = await dash("", "front_desk");
     expect(d.costs).toBeNull();

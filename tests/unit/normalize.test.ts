@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import policyJson from "../../config/policy.demo.json";
 import { normalizeExtraction } from "@/lib/ai/normalize";
 import type { ExtractedFact, ExtractionOutput } from "@/lib/ai/schema";
-import { FACT_FIELDS } from "@/lib/domain/enums";
-import { resolveFacts } from "@/lib/domain/facts";
+import { FACT_FIELDS, type FactField } from "@/lib/domain/enums";
+import { resolveFacts, type EvidenceRecord } from "@/lib/domain/facts";
 import { validatePolicyConfig, type PolicyConfig } from "@/lib/policy/schema";
 
 const v = validatePolicyConfig(policyJson);
@@ -15,12 +15,25 @@ const fact = (p: Partial<ExtractedFact> & Pick<ExtractedFact, "field" | "quote">
 });
 const out = (facts: ExtractedFact[], requests: ExtractionOutput["requests"] = []): ExtractionOutput => ({ intent: "new_project", intent_confidence: 0.9, facts, requests, proposed_route: "designer_handoff", ambiguity_flags: [] });
 
-function run(callerText: string, output: ExtractionOutput, agentText = "What kind of project is it?") {
+function run(
+  callerText: string,
+  output: ExtractionOutput,
+  agentText = "What kind of project is it?",
+  extra: { resolved?: ReturnType<typeof resolveFacts>; lastPromptedField?: FactField | null; lastPromptKind?: "question" | "confirm" | null } = {},
+) {
   const utterances = new Map([
     [0, { speaker: "agent", text: agentText }],
     [1, { speaker: "caller", text: callerText }],
   ]);
-  return normalizeExtraction(output, { policy, utterances, resolved: resolveFacts(FACT_FIELDS, []), now: NOW, newSeqs: new Set([1]) });
+  return normalizeExtraction(output, {
+    policy,
+    utterances,
+    resolved: extra.resolved ?? resolveFacts(FACT_FIELDS, []),
+    now: NOW,
+    newSeqs: new Set([1]),
+    lastPromptedField: extra.lastPromptedField ?? null,
+    lastPromptKind: extra.lastPromptKind ?? null,
+  });
 }
 
 describe("model output validation", () => {
@@ -60,5 +73,27 @@ describe("model output validation", () => {
   it("ignores a confirmation flag when the caller did not affirm", () => {
     const r = run("Actually it is bigger.", out([fact({ field: "area", quote: "Actually it is bigger", confirms_previous: true })]));
     expect(r.evidence.filter((e) => e.status === "confirmed")).toHaveLength(0);
+  });
+
+  it("a model 'confirmation' only counts for the field the agent actually read back", () => {
+    const pendingBudget: EvidenceRecord = {
+      id: "b1", field: "budget", value: { kind: "budget", paise: 1200, range_max_paise: null }, status: "needs_confirmation",
+      ambiguity: ["magnitude_unclear"], source: "ai_extraction", quote: "12", utterance_id: null, created_at: NOW,
+    };
+    const resolved = resolveFacts(FACT_FIELDS, [pendingBudget]);
+    const yes = out([fact({ field: "budget", quote: "Yes, that's right", confirms_previous: true })]);
+    // The agent read back the AREA; the model mislabels the "yes" as a budget confirmation.
+    const wrong = run("Yes, that's right.", yes, "Just to confirm, about 1,250 square feet?", { resolved, lastPromptedField: "area", lastPromptKind: "confirm" });
+    expect(wrong.evidence).toHaveLength(0);
+    expect(wrong.rejected[0].reason).toBe("confirmation_without_pending_read_back");
+    const right = run("Yes, that's right.", yes, "Could you confirm the budget?", { resolved, lastPromptedField: "budget", lastPromptKind: "confirm" });
+    expect(right.evidence[0]).toMatchObject({ field: "budget", status: "confirmed", source: "caller_confirmation" });
+  });
+
+  it("the quoted place decides; inside and outside places together are ambiguous", () => {
+    const thane = run("The flat is in Thane; I work in Baner.", out([fact({ field: "location", quote: "The flat is in Thane", text_value: "Thane" })]));
+    expect(thane.evidence[0]).toMatchObject({ value: { in_area: false, city: "Thane" }, status: "stated" });
+    const both = run("It's between Thane and Baner, not decided.", out([fact({ field: "location", quote: "between Thane and Baner", text_value: "Thane" })]));
+    expect(both.evidence[0]).toMatchObject({ value: { in_area: null }, status: "needs_confirmation", ambiguity: ["multiple_places"] });
   });
 });

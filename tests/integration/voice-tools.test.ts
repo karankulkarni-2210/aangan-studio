@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import * as bookingsRoute from "@/app/api/v1/leads/[id]/bookings/route";
+import * as leadRoute from "@/app/api/v1/leads/[id]/route";
+import { runDispatcher } from "@/lib/jobs/handlers";
 import * as captureRoute from "@/app/internal/voice/tools/capture-facts/route";
 import * as escalateRoute from "@/app/internal/voice/tools/escalate-to-human/route";
 import * as evaluateRoute from "@/app/internal/voice/tools/evaluate-qualification/route";
@@ -125,5 +127,44 @@ describe("missing policy", () => {
     const ev = await call(evaluateRoute.POST, "POST", "/x", { body: {}, headers: c.headers });
     expect(ev.body.decision).toBe("needs_review");
     expect(ev.body.reasons[0].rule_id).toBe("POLICY_MISSING");
+  });
+});
+
+describe("review regressions", () => {
+  it("voice tools cannot change a decision after the call is finalised (transcript-only still accepted)", async () => {
+    const c = await startCall();
+    await c.say("We need full home interiors in Baner.");
+    await c.end();
+    await runDispatcher(db, { trigger: "test" });
+    expect((await c.say("Actually our budget is 20 lakh.")).body.code).toBe("call_finalized");
+    expect((await call(evaluateRoute.POST, "POST", "/x", { body: {}, headers: c.headers })).status).toBe(409);
+    expect((await call(escalateRoute.POST, "POST", "/x", { body: { kind: "complaint" }, headers: c.headers })).status).toBe(409);
+    expect((await c.say("Thanks, bye.", "Goodbye.", { extract: false })).status).toBe(200);
+  });
+
+  it("mid-call qualification requires discovery to be complete", async () => {
+    const c = await startCall();
+    await c.say("We need full home interiors for our flat in Baner.");
+    const area = await c.say("It's about 1250 square feet carpet area.", "Roughly how large is the space?");
+    const callerSeq = c.nextSeq() + 1;
+    await c.say("Yes, that's right.", area.body.next.prompt, { confirmations: [{ evidence_id: area.body.next.evidence_id, confirmed: true, utterance_seq: callerSeq }] });
+    await c.say("We want to start next month.", "When are you hoping to start?");
+    await c.say("Our budget is 15 lakh.", "Do you have a budget in mind?");
+    const ev = await call(evaluateRoute.POST, "POST", "/x", { body: {}, headers: c.headers });
+    // All six rules pass, but name and callback time are still missing.
+    expect(ev.body.decision).toBe("needs_review");
+    expect(ev.body.reasons.find((r: { rule_id: string }) => r.rule_id === "DISCOVERY_INCOMPLETE")).toBeTruthy();
+    expect(ev.body.reasons.filter((r: { effect: string }) => r.effect === "not_fit")).toHaveLength(0);
+    expect(ev.body.booking_eligible).toBe(false);
+  });
+
+  it("rate limits are per route: heavy lead reads do not exhaust the booking budget", async () => {
+    const c = await startCall();
+    for (let i = 0; i < 31; i++) {
+      const r = await call(leadRoute.GET, "GET", `/api/v1/leads/${c.leadId}`, { as: "admin", params: { id: c.leadId } });
+      expect(r.status).toBe(200);
+    }
+    const res = await call(bookingsRoute.POST, "POST", `/api/v1/leads/${c.leadId}/bookings`, { as: "admin", params: { id: c.leadId }, body: { decision: "decline", idempotency_key: "after-reads-1" } });
+    expect(res.status).toBe(201);
   });
 });

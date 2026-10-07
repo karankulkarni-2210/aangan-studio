@@ -28,7 +28,8 @@ export async function assessLead(q: Queryable, leadId: string, opts: AssessOptio
     policy: opts.policy?.config ?? null,
     facts,
     intent: (lead.intent as Intent | null) ?? null,
-    discoveryIncomplete: lead.discovery_status === "incomplete",
+    // Mid-call too: a lead is only `qualified` once every required discovery answer is settled.
+    discoveryIncomplete: lead.discovery_status !== "complete",
     injectionSuspected: lead.injection_suspected,
   });
   const result: QualificationResult =

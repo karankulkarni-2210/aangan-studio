@@ -4,9 +4,11 @@ import { route, type RouteContext } from "@/lib/http/route";
 
 // Protected, bounded dispatcher. POST is the contract; GET exists only because Vercel Cron issues
 // GET requests (Authorization: Bearer CRON_SECRET). Never public, never unbounded.
+// Budget: no new job starts after time_budget_ms (default 15 s); one job's provider calls are
+// bounded by 10 s timeouts, so a run ends well inside maxDuration and inside the 120 s lease.
 export const maxDuration = 60;
 
-const limits = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), time_budget_ms: z.coerce.number().int().min(1000).max(50000).default(20000) });
+const limits = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), time_budget_ms: z.coerce.number().int().min(1000).max(20000).default(15000) });
 
 const handler = async (ctx: RouteContext) => {
   const q = ctx.query(limits);

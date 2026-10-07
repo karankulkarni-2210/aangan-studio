@@ -103,4 +103,20 @@ describe("consultation booking", () => {
     const blocked = await call(slotsRoute.GET, "GET", `/api/v1/booking-slots?lead_id=${ns.lead_id}`, { as: "admin" });
     expect(blocked.body).toMatchObject({ eligible: false, reason: "lead_not_fit", slots: [] });
   });
+
+  it("never allows a second booking while one is pending reconciliation", async () => {
+    const { leadId, slots } = await qualifiedLead();
+    setProviderOverrides({ calendar: createMockCalendar(db, { createBooking: ["timeout_after_commit"] }) });
+    expect((await book(leadId, { decision: "book", slot_start: slots[0].start, caller_confirmed: true, idempotency_key: "first-attempt" })).status).toBe(202);
+    setProviderOverrides(null);
+    const second = await book(leadId, { decision: "book", slot_start: slots[1].start, caller_confirmed: true, idempotency_key: "second-attempt" });
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe("booking_in_progress");
+    setClock(() => new Date(Date.now() + 2 * 60000));
+    await runDispatcher(db, { trigger: "test" });
+    const { rows } = await db.query(`select count(*)::int as n from public.mock_remote_objects where provider = 'calcom' and object_kind = 'booking'`);
+    expect(rows[0].n).toBe(1);
+    const again = await book(leadId, { decision: "book", slot_start: slots[2].start, caller_confirmed: true, idempotency_key: "third-attempt" });
+    expect(again.body.code).toBe("already_booked");
+  });
 });

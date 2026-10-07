@@ -14,7 +14,7 @@ npm install
 npm run check
 ```
 
-`npm run check` runs `tsc --noEmit`, 190 Vitest tests (embedded Postgres with the real migrations and RLS), and `npm run demo`. The demo prints 19 checks and writes `demo-output/report.md`, transcripts, email previews, lead JSON and the dashboard JSON.
+`npm run check` runs `tsc --noEmit`, 202 Vitest tests (embedded Postgres with the real migrations and RLS), and `npm run demo`. The demo prints 19 checks and writes `demo-output/report.md`, transcripts, email previews, lead JSON and the dashboard JSON.
 
 To run the server: `npm run demo:secrets`, then `DATABASE_URL=pglite:./.demo-db npm run dev`, then mint a token with `npm run demo:token -- admin`.
 
@@ -41,17 +41,20 @@ Behaviour the screens should reflect:
   - A lead hidden from a designer returns **404**, not 403.
 - **Edits:** `PATCH /api/v1/leads/{id}` needs the current `version`. A stale version returns 409 `version_conflict` with `details.current_version`. Fact edits return the new qualification and keep the history.
 - **Acknowledgements:** 201 on the first accept and 200 with `already_acknowledged` on repeats. Front desk gets 403 on a designer handoff. Delivery state and acknowledgement state are separate fields.
-- **Bookings:** 201 means confirmed; also check `booking.confirmed === true`. 202 means pending reconciliation and is **not** booked. 409 `slot_unavailable` carries `details.alternatives`. 502 means not booked.
+- **Bookings:** 201 means confirmed; also check `booking.confirmed === true`. 202 means pending reconciliation and is **not** booked. 409 `slot_unavailable` carries `details.alternatives`. 409 `booking_in_progress` / `already_booked` means one booking per lead is already in flight or confirmed. 502 means not booked.
+- **Voice tools after the call:** once a call is finalised, tools return 409 `call_finalized` (transcript-only `capture-facts` with `extract: false` is still accepted). Later changes go through staff edits.
+- **Reassignment:** the designer handoff recipient is always the lead owner. Reassigning to another approved designer re-targets and re-sends the handoff; reassigning to front desk/admin supersedes it.
 - **Dashboard:**
   - Every rate comes with its numerator and denominator and is `null` when the denominator is 0.
   - `data_labels` drives the "Demo data and sample business rules" and simulated badges. `?data=live|simulated|all` filters.
   - Costs are admin-only; the front desk receives `costs: null` with `costs_restricted: true`.
+  - Cost lines have `basis` `estimated`, `invoiced` or `mixed` (an invoice covers part of the period) and `invoice_covered_fraction`.
 - **Simulated records:** `is_simulated` on leads and calls, `simulated` on bookings and handoffs, and email subjects prefixed `[SIMULATED]`.
 
 ## Decisions to review
 
 1. **Five-minute response.** A "meaningful spoken response" is an agent line of at least `operations.meaningful_response_min_chars` characters (20, demo).
-2. **Interrupted calls.** A call with incomplete discovery is `needs_review`, even when the facts collected so far pass every rule. This follows "interrupted or incomplete enquiries enter front-desk review".
+2. **Incomplete discovery.** A lead with incomplete discovery (mid-call or after an interrupted call) is `needs_review`, even when the facts collected so far pass every rule. `qualified` requires every required discovery answer to be settled. This follows "interrupted or incomplete enquiries enter front-desk review".
 3. **Out-of-scope calls.** Once a definitive boundary is established, discovery stops after contact details, and discovery for that lead counts as complete.
 4. **Timeline rule.** A start later than six months is `needs_review`, not `not_fit` (demo choice). Budget below ₹8 lakh is `not_fit`.
 5. **Handoff timing.** The voice tool `request-handoff` records intent. The handoff email is created after the call from the final decision.

@@ -23,6 +23,8 @@ export interface VoiceBinding {
   leadId: string | null;
   provider: string;
   isSimulated: boolean;
+  /** End-of-call processing has run; decisions can no longer change through voice tools. */
+  finalized: boolean;
 }
 
 export type AuthKind = "none" | "staff" | "voice" | "staff_or_voice" | "dispatch" | "webhook";
@@ -131,7 +133,7 @@ async function authenticateVoice(db: Db, req: Request): Promise<VoiceBinding> {
     throw unauthorized("Tool call is not bound to a valid call");
   }
   const { rows } = await db.query(
-    `select id, lead_id, provider, is_simulated, status, ended_at from public.calls where id = $1`,
+    `select id, lead_id, provider, is_simulated, status, ended_at, finalized_at from public.calls where id = $1`,
     [callId],
   );
   const call = rows[0];
@@ -139,7 +141,7 @@ async function authenticateVoice(db: Db, req: Request): Promise<VoiceBinding> {
   if (call.ended_at && now().getTime() - new Date(call.ended_at).getTime() > CALL_TOOL_GRACE_MS) {
     throw new ApiError(409, "call_closed", "The call has ended; tools are no longer available");
   }
-  return { callId: call.id, leadId: call.lead_id, provider: call.provider, isSimulated: call.is_simulated };
+  return { callId: call.id, leadId: call.lead_id, provider: call.provider, isSimulated: call.is_simulated, finalized: Boolean(call.finalized_at) };
 }
 
 export async function consumeRateLimit(db: Db, key: string, limitPerMinute: number): Promise<void> {
@@ -193,7 +195,9 @@ export function route(opts: RouteOptions, handler: Handler) {
 
       if (opts.rateLimitPerMinute) {
         const principal = staff ? `staff:${staff.id}` : voice ? `call:${voice.callId}` : `ip:${clientIp(req)}`;
-        await consumeRateLimit(db, `${new URL(req.url).pathname.split("/").slice(0, 4).join("/")}|${principal}`, opts.rateLimitPerMinute);
+        // One bucket per method + route template (ids collapsed), so routes keep their own limits.
+        const template = new URL(req.url).pathname.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ":id");
+        await consumeRateLimit(db, `${req.method} ${template}|${principal}`, opts.rateLimitPerMinute);
       }
 
       let bodyCache: string | null = null;

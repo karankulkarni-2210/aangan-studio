@@ -7,7 +7,7 @@ import { ApiError, badRequest, forbidden, notFound } from "@/lib/http/errors";
 import type { StaffActor } from "@/lib/http/route";
 import { audit } from "./audit";
 import { enqueueCrmSync } from "./crm";
-import { ensureHandoff } from "./handoffs";
+import { ensureHandoff, retargetDesignerHandoff } from "./handoffs";
 import { recomputeLead } from "./lead-state";
 import { getActivePolicy, getPolicyById, type PolicyRecord } from "./policies";
 import { assessLead } from "./qualification";
@@ -91,25 +91,28 @@ export async function listLeads(db: Db, staff: StaffActor, query: z.infer<typeof
 const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
 
 export async function getLeadDetail(db: Db, staff: StaffActor, leadId: string) {
-  return db.tx((tx) =>
-    tx.asStaff(staff.auth_user_id, async (q) => {
+  return db.tx(async (tx) => {
+    const detail = await tx.asStaff(staff.auth_user_id, async (q) => {
       const { rows } = await q.query(`select l.*, ${STAGE_SQL} as stage from public.leads l where l.id = $1`, [leadId]);
       const lead = rows[0];
       if (!lead) throw notFound("Lead");
-      const [evidence, calls, utterances, assessments, tasks, handoffs, bookings, syncs, outcomes, owner, related, policy] = await Promise.all([
-        q.query(`select id, field, value, quote, source, confirmation_status as status, ambiguity, utterance_id, call_id, extractor, confidence, created_at, created_by from public.field_evidence where lead_id = $1 order by created_at, id`, [leadId]),
-        q.query(`select * from public.calls where lead_id = $1 order by arrived_at`, [leadId]),
-        q.query(`select u.call_id, u.id, u.seq, u.speaker, u.text, u.spoken_at, u.price_guard_flag from public.utterances u join public.calls c on c.id = u.call_id where c.lead_id = $1 order by u.call_id, u.seq`, [leadId]),
-        q.query(`select * from public.qualification_assessments where lead_id = $1 order by created_at`, [leadId]),
-        q.query(`select id, kind, status, assigned_role, assigned_staff_id, summary, evidence_utterance_id, due_at, created_at, resolved_at, resolved_by, resolution_note, call_id from public.human_tasks where lead_id = $1 order by created_at`, [leadId]),
-        q.query(`select h.*, s.display_name as recipient_name from public.handoffs h left join public.staff s on s.id = h.recipient_staff_id where h.lead_id = $1 order by h.created_at`, [leadId]),
-        q.query(`select * from public.bookings where lead_id = $1 order by created_at`, [leadId]),
-        q.query(`select provider, object_kind, mode, status, remote_id, attempts, last_error, last_attempt_at, succeeded_at from public.integration_syncs where lead_id = $1`, [leadId]),
-        q.query(`select id, outcome, occurred_at, source, contract_value_paise, reason, recorded_by, created_at from public.outcome_events where lead_id = $1 order by occurred_at, created_at`, [leadId]),
-        lead.owner_staff_id ? q.query(`select id, display_name, role from public.staff where id = $1`, [lead.owner_staff_id]) : Promise.resolve({ rows: [] as Record<string, unknown>[], rowCount: 0 }),
-        lead.caller_phone ? q.query(`select id, reference, intake_at, qualification_status from public.leads where caller_phone = $1 and id <> $2 order by intake_at desc limit 10`, [lead.caller_phone, leadId]) : Promise.resolve({ rows: [] as Record<string, unknown>[], rowCount: 0 }),
-        q.query(`select id, version, is_demo, label from public.business_policies where id = $1`, [lead.policy_id]),
-      ]);
+      // Sequential on purpose: one transaction = one connection; pg does not allow concurrent queries on it.
+      const queries: Array<() => Promise<{ rows: Record<string, any>[] }>> = [ // eslint-disable-line @typescript-eslint/no-explicit-any
+        () => q.query(`select id, field, value, quote, source, confirmation_status as status, ambiguity, utterance_id, call_id, extractor, confidence, created_at, created_by from public.field_evidence where lead_id = $1 order by created_at, id`, [leadId]),
+        () => q.query(`select * from public.calls where lead_id = $1 order by arrived_at`, [leadId]),
+        () => q.query(`select u.call_id, u.id, u.seq, u.speaker, u.text, u.spoken_at, u.price_guard_flag from public.utterances u join public.calls c on c.id = u.call_id where c.lead_id = $1 order by u.call_id, u.seq`, [leadId]),
+        () => q.query(`select * from public.qualification_assessments where lead_id = $1 order by created_at`, [leadId]),
+        () => q.query(`select id, kind, status, assigned_role, assigned_staff_id, summary, evidence_utterance_id, due_at, created_at, resolved_at, resolved_by, resolution_note, call_id from public.human_tasks where lead_id = $1 order by created_at`, [leadId]),
+        () => q.query(`select h.*, s.display_name as recipient_name from public.handoffs h left join public.staff s on s.id = h.recipient_staff_id where h.lead_id = $1 order by h.created_at`, [leadId]),
+        () => q.query(`select * from public.bookings where lead_id = $1 order by created_at`, [leadId]),
+        () => q.query(`select provider, object_kind, mode, status, remote_id, attempts, last_error, last_attempt_at, succeeded_at from public.integration_syncs where lead_id = $1`, [leadId]),
+        () => q.query(`select id, outcome, occurred_at, source, contract_value_paise, reason, recorded_by, created_at from public.outcome_events where lead_id = $1 order by occurred_at, created_at`, [leadId]),
+        () => lead.owner_staff_id ? q.query(`select id, display_name, role from public.staff where id = $1`, [lead.owner_staff_id]) : Promise.resolve({ rows: [] as Record<string, unknown>[], rowCount: 0 }),
+        () => lead.caller_phone ? q.query(`select id, reference, intake_at, qualification_status from public.leads where caller_phone = $1 and id <> $2 order by intake_at desc limit 10`, [lead.caller_phone, leadId]) : Promise.resolve({ rows: [] as Record<string, unknown>[], rowCount: 0 }),
+      ];
+      const results = [];
+      for (const run of queries) results.push(await run());
+      const [evidence, calls, utterances, assessments, tasks, handoffs, bookings, syncs, outcomes, owner, related] = results;
       const transcripts = new Map<string, unknown[]>();
       for (const u of utterances.rows) {
         const list = transcripts.get(u.call_id) ?? [];
@@ -153,7 +156,8 @@ export async function getLeadDetail(db: Db, staff: StaffActor, leadId: string) {
           version: lead.version,
           updated_at: iso(lead.updated_at),
         },
-        data_labels: { simulated: lead.is_simulated, demo_policy: policy.rows[0]?.is_demo ?? null, policy_version: policy.rows[0]?.version ?? null },
+        data_labels: { simulated: lead.is_simulated, demo_policy: null as boolean | null, policy_version: null as number | null },
+        _policy_id: lead.policy_id as string | null,
         facts: Object.fromEntries(Object.entries(factStatus).map(([f, v]) => [f, { status: v.status, display: v.display, ambiguity: v.ambiguity, evidence_ids: v.evidence_ids }])),
         missing_fields: lead.missing_fields,
         evidence: evidence.rows.map((e) => ({ ...e, created_at: iso(e.created_at) })),
@@ -207,8 +211,13 @@ export async function getLeadDetail(db: Db, staff: StaffActor, leadId: string) {
         outcomes: outcomes.rows.map((o) => ({ ...o, occurred_at: iso(o.occurred_at), created_at: iso(o.created_at) })),
         possible_related_leads: related.rows,
       };
-    }),
-  );
+    });
+    // The policy label is not sensitive: read it with the server role so designers also see the
+    // "Demo data and sample business rules" label (business_policies is admin/front-desk under RLS).
+    const { _policy_id, ...rest } = detail;
+    const { rows: pol } = await tx.query(`select version, is_demo from public.business_policies where id = $1`, [_policy_id]);
+    return { ...rest, data_labels: { ...rest.data_labels, demo_policy: pol[0]?.is_demo ?? null, policy_version: pol[0]?.version ?? null } };
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -286,6 +295,10 @@ export async function patchLead(db: Db, staff: StaffActor, leadId: string, body:
        where id = $1`,
       [leadId, body.owner_staff_id !== undefined, body.owner_staff_id ?? null, body.notes !== undefined, body.notes ?? null],
     );
+    let handoffChange: string | null = null;
+    if (body.owner_staff_id !== undefined && body.owner_staff_id !== before.owner_staff_id) {
+      handoffChange = await retargetDesignerHandoff(tx, leadId, body.owner_staff_id);
+    }
     for (const e of body.facts ?? []) {
       await tx.query(
         `insert into public.field_evidence (lead_id, field, value, quote, source, confidence, ambiguity, confirmation_status, extractor, created_by)
@@ -306,7 +319,7 @@ export async function patchLead(db: Db, staff: StaffActor, leadId: string, body:
     const { rows: afterRows } = await tx.query(`select * from public.leads where id = $1`, [leadId]);
     const after = afterRows[0];
     const diff = (row: Record<string, unknown>) => Object.fromEntries(AUDITED.map((k) => [k, row[k]]));
-    await audit(tx, { actor_kind: "staff", actor_staff_id: staff.id, action: "lead.edited", entity_type: "lead", entity_id: leadId, before: diff(before), after: { ...diff(after), reason: body.edit_reason, fact_edits: body.facts?.map((f) => f.field) ?? [] }, request_id: requestId });
+    await audit(tx, { actor_kind: "staff", actor_staff_id: staff.id, action: "lead.edited", entity_type: "lead", entity_id: leadId, before: diff(before), after: { ...diff(after), reason: body.edit_reason, fact_edits: body.facts?.map((f) => f.field) ?? [], designer_handoff: handoffChange }, request_id: requestId });
     return { id: leadId, version: after.version, qualification: assessment ? { decision: assessment.decision, assessment_id: assessment.assessment_id } : null };
   });
 }

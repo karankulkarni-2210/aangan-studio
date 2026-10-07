@@ -45,6 +45,9 @@ export interface NormalizeContext {
   now: Date;
   /** Caller lines received in this request. Older lines are context only, never re-extracted. */
   newSeqs: Set<number>;
+  /** What the agent last asked. A model "confirmation" only counts for the field that was read back. */
+  lastPromptedField: FactField | null;
+  lastPromptKind: "question" | "confirm" | null;
 }
 
 const uniq = <T,>(xs: T[]) => [...new Set(xs)];
@@ -95,13 +98,22 @@ function normaliseFact(f: ExtractedFact, utterance: string, ctx: NormalizeContex
     case "location": {
       if (!policy) return { value: { kind: "location", city: f.text_value, locality: null, in_area: null }, ambiguity: [] };
       const sa = policy.service_area;
-      const inside = sa.accepted_locations.find((p) => containsPhrase(f.quote, p) || containsPhrase(utterance, p));
-      if (inside) {
-        const isCity = normaliseForMatch(inside) === normaliseForMatch(sa.city);
-        return { value: { kind: "location", city: sa.city, locality: isCity ? null : originalSpan(utterance, inside), in_area: true }, ambiguity: [] };
+      // The quoted words decide; the rest of the utterance is only a fallback. A place inside and a
+      // place outside the boundary in the same evidence is ambiguous ("flat in Thane, I work in Baner").
+      const find = (text: string) => ({
+        inside: sa.accepted_locations.find((p) => containsPhrase(text, p)),
+        outside: sa.known_outside_locations.find((p) => containsPhrase(text, p)),
+      });
+      const inQuote = find(f.quote);
+      const hit = inQuote.inside || inQuote.outside ? inQuote : find(utterance);
+      if (hit.inside && hit.outside) {
+        return { value: { kind: "location", city: f.text_value ?? f.quote, locality: null, in_area: null }, ambiguity: ["multiple_places"] };
       }
-      const outside = sa.known_outside_locations.find((p) => containsPhrase(f.quote, p) || containsPhrase(utterance, p));
-      if (outside) return { value: { kind: "location", city: originalSpan(utterance, outside), locality: null, in_area: false }, ambiguity: [] };
+      if (hit.inside) {
+        const isCity = normaliseForMatch(hit.inside) === normaliseForMatch(sa.city);
+        return { value: { kind: "location", city: sa.city, locality: isCity ? null : originalSpan(utterance, hit.inside), in_area: true }, ambiguity: [] };
+      }
+      if (hit.outside) return { value: { kind: "location", city: originalSpan(utterance, hit.outside), locality: null, in_area: false }, ambiguity: [] };
       const named = f.text_value && quoteAppearsIn(f.text_value, utterance) ? f.text_value : null;
       if (!named) return { reject: "location_not_in_quote" };
       // Unknown place: never assumed outside the boundary. Kept for human review.
@@ -189,7 +201,8 @@ export function normalizeExtraction(output: ExtractionOutput, ctx: NormalizeCont
 
     if (f.confirms_previous) {
       const pending = ctx.resolved[f.field];
-      if (isAffirmation(u.text) && pending?.value && pending.pending_evidence_id && pending.status !== "contradictory") {
+      const wasReadBack = ctx.lastPromptKind === "confirm" && ctx.lastPromptedField === f.field;
+      if (wasReadBack && isAffirmation(u.text) && pending?.value && pending.pending_evidence_id && pending.status !== "contradictory") {
         evidence.push({
           field: f.field,
           value: pending.value,

@@ -26,7 +26,7 @@ npm test
 npm run demo
 ```
 
-- `npm test` runs 190 tests against embedded Postgres (PGlite) with the real SQL migrations and RLS.
+- `npm test` runs 202 tests against embedded Postgres (PGlite) with the real SQL migrations and RLS.
 - `npm run demo` runs the reproducible end-to-end demo and writes `demo-output/`.
 
 The demo covers:

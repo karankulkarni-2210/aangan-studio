@@ -44,7 +44,7 @@ Precedence: **not_fit > needs_review > qualified**. Only a usable fact (stated w
 | `AREA_POSITIVE_CONFIRMED` | Area in sq ft (converted from sq m / sq yd) **and** caller confirmation | > 0 and confirmed | needs_review | needs_review (unit missing, not read back) |
 | `BUDGET_AT_LEAST_8_LAKH` | Caller-stated budget in paise (range → lower bound) | ≥ 80,000,000 paise (₹8 lakh, invented) | **not_fit** | needs_review (missing, declined, unit unclear) |
 | `START_WITHIN_6_MONTHS` | Months from now | ≤ 6 | needs_review (later start) | needs_review |
-| `DISCOVERY_INCOMPLETE` (global) | Call ended before required fields settled | — | — | needs_review |
+| `DISCOVERY_INCOMPLETE` (global) | Required discovery answers not yet settled (mid-call or after the call ended) | — | — | needs_review |
 | `INJECTION_REVIEW` (global) | Instruction-like caller text | — | — | needs_review |
 | `POLICY_MISSING` (global) | No valid active policy | — | — | needs_review (fallback message-taking script) |
 

@@ -22,6 +22,14 @@ import { recordExtractionUsage } from "./usage";
 
 // Bounded business tools for the voice agent. Every response is checked by the pricing guard
 // before it leaves the server. The agent can never choose recipients or read prices.
+// After end-of-call finalisation only transcript recording (extract=false) is accepted: later
+// tool calls could otherwise change a decision without re-running handoff and CRM work.
+
+export function assertNotFinalized(voice: VoiceBinding, allowTranscriptOnly = false): void {
+  if (voice.finalized && !allowTranscriptOnly) {
+    throw conflict("call_finalized", "The call has been finalised; further changes go through staff");
+  }
+}
 
 const iso = z.string().datetime({ offset: true });
 
@@ -101,6 +109,7 @@ function speakable<T>(response: T): T {
 // ---------------------------------------------------------------------------------------------
 
 export async function captureFacts(db: Db, voice: VoiceBinding, body: z.infer<typeof captureFactsSchema>) {
+  assertNotFinalized(voice, body.extract === false);
   const t = now();
   // Phase 1: persist the transcript and read context.
   const phase1 = await db.tx(async (tx) => {
@@ -221,7 +230,15 @@ export async function captureFacts(db: Db, voice: VoiceBinding, body: z.infer<ty
 
     let normalized = null;
     if (run) {
-      normalized = normalizeExtraction(run.output, { policy: policy?.config ?? null, utterances: byseq, resolved: resolvedNow, now: now(), newSeqs: new Set(newSeqs) });
+      normalized = normalizeExtraction(run.output, {
+        policy: policy?.config ?? null,
+        utterances: byseq,
+        resolved: resolvedNow,
+        now: now(),
+        newSeqs: new Set(newSeqs),
+        lastPromptedField: call.last_prompted_field,
+        lastPromptKind: call.last_prompt_kind,
+      });
       for (const e of normalized.evidence as EvidenceDraft[]) {
         await tx.query(
           `insert into public.field_evidence (lead_id, call_id, utterance_id, field, value, quote, source, confidence, ambiguity, confirmation_status, extractor)
@@ -342,6 +359,7 @@ function closeScript(policy: PolicyRecord | null, decision: string, bookingEnabl
 }
 
 export async function evaluateForCall(db: Db, voice: VoiceBinding) {
+  assertNotFinalized(voice);
   return db.tx(async (tx) => {
     const call = await loadCall(tx, voice.callId);
     const leadId = call.lead_id ?? (await ensureLeadForCall(tx, call.id));
@@ -362,6 +380,7 @@ export async function evaluateForCall(db: Db, voice: VoiceBinding) {
 }
 
 export async function escalateToHuman(db: Db, voice: VoiceBinding, body: z.infer<typeof escalateSchema>, requestId: string) {
+  assertNotFinalized(voice);
   return db.tx(async (tx) => {
     const call = await loadCall(tx, voice.callId);
     const leadId = call.lead_id ?? (await ensureLeadForCall(tx, call.id));
@@ -388,6 +407,7 @@ export async function escalateToHuman(db: Db, voice: VoiceBinding, body: z.infer
 }
 
 export async function requestHandoff(db: Db, voice: VoiceBinding, body: z.infer<typeof requestHandoffSchema>, requestId: string) {
+  assertNotFinalized(voice);
   return db.tx(async (tx) => {
     const call = await loadCall(tx, voice.callId);
     const leadId = call.lead_id ?? (await ensureLeadForCall(tx, call.id));

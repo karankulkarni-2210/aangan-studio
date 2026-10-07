@@ -17,5 +17,5 @@ export const JOB_HANDLERS: Record<JobKind, JobHandler> = {
 
 export async function runDispatcher(db: Db, opts: { limit?: number; timeBudgetMs?: number; trigger: string }): Promise<DispatchResult> {
   await ensureDailyMaintenance(db);
-  return dispatch(db, JOB_HANDLERS, { limit: opts.limit ?? 25, timeBudgetMs: opts.timeBudgetMs ?? 20_000, trigger: opts.trigger });
+  return dispatch(db, JOB_HANDLERS, { limit: opts.limit ?? 25, timeBudgetMs: opts.timeBudgetMs ?? 15_000, trigger: opts.trigger });
 }

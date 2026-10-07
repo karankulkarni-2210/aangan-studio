@@ -268,7 +268,7 @@ export async function runScenario(db: Db, s: Scenario, opts: { runJobs: boolean;
   // 5. Durable jobs (finalise, handoff email, CRM), bounded.
   if (opts.runJobs) {
     for (let i = 0; i < 5; i++) {
-      const r = await runDispatcher(db, { limit: 25, timeBudgetMs: 20000, trigger: "simulation" });
+      const r = await runDispatcher(db, { limit: 25, timeBudgetMs: 15000, trigger: "simulation" });
       result.dispatch.push(r);
       if (r.remaining_ready === 0) break;
     }

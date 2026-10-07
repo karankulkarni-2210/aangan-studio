@@ -108,7 +108,7 @@ export function createCalcomAdapter(fetchImpl: typeof fetch = fetch): CalendarAd
       }
       if (!res.ok) return { status: "failed", message: `Cal.com list HTTP ${res.status}`, retriable: true };
       const json = (await res.json()) as { data?: Array<{ uid: string; status?: string; metadata?: Record<string, string> }> };
-      const match = (json.data ?? []).find((b) => b.metadata?.aangan_booking_key === bookingKey && b.status !== "cancelled");
+      const match = (json.data ?? []).find((b) => Boolean(b.uid) && b.metadata?.aangan_booking_key === bookingKey && b.status !== "cancelled");
       return { status: "ok", data: match ? { uid: match.uid } : null };
     },
   };
