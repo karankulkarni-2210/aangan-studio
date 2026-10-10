@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import type { DemoScenarioList, LeadDetail, SimulationResult } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { describeError, type DemoScenarioList, type LeadDetail, type SimulationResult } from "./api";
 import { Chip, Dialog, ErrorState, Icon, Skeleton, StatusChip, useResource, useToast } from "./components";
 import { CRM, DELIVERY, LEAD_BOOKING, QUAL } from "./format";
 import { useSession } from "./session";
@@ -110,6 +110,9 @@ function SampleEnquiryDialog({ open, onClose, onDone }: { open: boolean; onClose
       ) : scenarios.error ? (
         <ErrorState error={scenarios.error} onRetry={scenarios.reload} />
       ) : (
+        <div className="stack">
+        <LiveVoiceTest />
+        <div className="small muted" style={{ marginTop: 4 }}>Or run a scripted caller:</div>
         <div className="stack" role="radiogroup" aria-label="Sample enquiry">
           {featured.map((s) => (
             <ScenarioOption key={s.id} s={s} title={FRIENDLY[s.id] ?? s.title} selected={choice === s.id} onSelect={() => setChoice(s.id)} />
@@ -125,8 +128,105 @@ function SampleEnquiryDialog({ open, onClose, onDone }: { open: boolean; onClose
             </details>
           ) : null}
         </div>
+        </div>
       )}
     </Dialog>
+  );
+}
+
+/** Live in-browser voice call with the real assistant (Vaani WebRTC), recorded as a test call. */
+function LiveVoiceTest() {
+  const { api } = useSession();
+  const [state, setState] = useState<"idle" | "connecting" | "live" | "ended">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [seconds, setSeconds] = useState(0);
+  const [leadId, setLeadId] = useState<string | null>(null);
+  const room = useRef<{ disconnect: () => Promise<void> } | null>(null);
+  const startedAt = useRef<number>(0);
+
+  useEffect(() => {
+    if (state !== "live") return;
+    const t = setInterval(() => setSeconds(Math.round((Date.now() - startedAt.current) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [state]);
+  useEffect(() => () => void room.current?.disconnect(), []);
+
+  const findLead = async () => {
+    await new Promise((r) => setTimeout(r, 4000));
+    try {
+      const { data } = await api<{ data: Array<{ id: string; intake_at: string }> }>("/api/v1/leads?simulated=true&page_size=5");
+      setLeadId(data.data.find((l) => new Date(l.intake_at).getTime() >= startedAt.current - 60_000)?.id ?? null);
+    } catch {
+      setLeadId(null);
+    }
+  };
+
+  const start = async () => {
+    setError(null);
+    setLeadId(null);
+    setState("connecting");
+    try {
+      const { data } = await api<{ token: string; connection_url: string }>("/api/v1/demo/voice-session", { method: "POST" });
+      const { Room, RoomEvent, Track } = await import("livekit-client");
+      const r = new Room();
+      r.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Audio) {
+          const el = track.attach();
+          el.dataset.aanganVoice = "1";
+          document.body.appendChild(el);
+        }
+      });
+      r.on(RoomEvent.Disconnected, () => {
+        document.querySelectorAll("[data-aangan-voice]").forEach((el) => el.remove());
+        room.current = null;
+        setState("ended");
+        void findLead();
+      });
+      await r.connect(data.connection_url, data.token);
+      await r.localParticipant.setMicrophoneEnabled(true);
+      room.current = r;
+      startedAt.current = Date.now();
+      setSeconds(0);
+      setState("live");
+    } catch (err) {
+      await room.current?.disconnect().catch(() => undefined);
+      setState("idle");
+      setError((err as Error).name === "NotAllowedError" ? "Microphone access was blocked. Allow the microphone in your browser and try again." : describeError(err).detail);
+    }
+  };
+
+  return (
+    <div className="card stack" style={{ background: "var(--accent-soft)", borderColor: "#cfdcd5", gap: 10 }}>
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <span className="metric-icon" style={{ background: "var(--card)" }} aria-hidden="true"><Icon name="phone" /></span>
+        <div className="grow">
+          <strong style={{ fontWeight: 500 }}>Talk to the assistant (live voice)</strong>
+          <div className="small muted">Speak to the real assistant in your browser, as a caller would. It is recorded as a test call: no real bookings, CRM records or emails.</div>
+        </div>
+      </div>
+      {error ? <div className="note bad small" role="alert">{error}</div> : null}
+      {state === "live" ? (
+        <div className="row wrap between">
+          <span className="row small" style={{ gap: 8 }}><span className="chip ok"><span className="dot" aria-hidden="true" />Connected</span> {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")} · speak now</span>
+          <button type="button" className="btn danger sm" onClick={() => void room.current?.disconnect()}>End call</button>
+        </div>
+      ) : state === "ended" ? (
+        <div className="row wrap between">
+          <span className="small">Call ended.{leadId ? " The enquiry was saved." : " Saving the enquiry…"}</span>
+          <span className="row">
+            {leadId ? <Link className="btn sm primary" href={`/enquiries/${leadId}`}>Open the saved lead</Link> : null}
+            <button type="button" className="btn sm" onClick={start}>Call again</button>
+          </span>
+        </div>
+      ) : (
+        <div>
+          <button type="button" className="btn primary" onClick={start} disabled={state === "connecting"}>
+            <Icon name="phone" size={18} /> {state === "connecting" ? "Connecting…" : "Start voice call"}
+          </button>
+          <span className="tiny muted" style={{ marginLeft: 10 }}>Needs your microphone.</span>
+        </div>
+      )}
+    </div>
   );
 }
 

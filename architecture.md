@@ -157,6 +157,7 @@ All of the frozen endpoints from the backend prompt are implemented unchanged:
 | `POST /api/v1/cost-entries` (admin) | Invoiced costs are needed for reconciliation against estimates. |
 | `GET /api/v1/demo/calls` | Lists scenarios; demo mode only. |
 | `POST /api/v1/demo/session` | Evaluator sandbox sign-in (demo mode only, rate-limited per IP). The token carries a sandbox claim: simulated leads only (others 404), no live calendar availability, and no policy or cost writes (403 `sandbox_read_only`). Real records still need a Supabase Auth login. |
+| `POST /api/v1/demo/voice-session` | Live in-browser voice test with the Vaani agent from the sample-enquiry window; recorded as a simulated call (mock providers, live AI). Needs `VAANI_AGENT_ID` and the bridge (`BRIDGE_HEALTH_URL`). |
 | `GET /api/v1/bookings` | The Consultations screen lists bookings across leads (RLS applies; sandbox sees simulated only). |
 | `GET /api/v1/staff` (admin, front desk) | Roster for assigning designers and showing handoff recipients. |
 | `Dashboard.daily` | Per-day (IST) calls, responses within target, leads and qualified leads for the activity chart. |

@@ -457,6 +457,13 @@ export const DemoSession = z.object({
   staff: z.object({ id: uuid, role: Role, display_name: z.string(), email: z.string(), app_mode: z.literal("demo") }),
 });
 
+export const VoiceTestSession = z.object({
+  token: z.string().describe("Short-lived LiveKit token for this one room"),
+  connection_url: z.string(),
+  room_name: z.string().nullable(),
+  simulated: z.literal(true),
+});
+
 export const StaffList = z.object({
   data: z.array(
     z.object({ id: uuid, display_name: z.string(), role: Role, email: z.string(), active: z.boolean(), approved_for_handoff: z.boolean(), services: z.array(z.string()), is_demo: z.boolean() }),

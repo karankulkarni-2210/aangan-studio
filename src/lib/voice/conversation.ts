@@ -8,6 +8,7 @@ import { log } from "@/lib/log";
 import { now } from "@/lib/runtime";
 import { createBooking, listSlots } from "@/lib/services/bookings";
 import { agentContext, FALLBACK_SCRIPT, processVoiceEvent } from "@/lib/services/calls";
+import { isWebsiteVoiceTest, WEBSITE_VOICE_TEST } from "./test-session";
 import { getPolicyById, type PolicyRecord } from "@/lib/services/policies";
 import { captureFacts, evaluateForCall, requestHandoff } from "@/lib/services/voice-tools";
 
@@ -88,7 +89,12 @@ export class Conversation {
     private readonly db: Db,
     readonly providerCallId: string,
     private readonly reqBody: Record<string, unknown> | null,
-  ) {}
+  ) {
+    this.provider = isWebsiteVoiceTest(reqBody) ? "simulated" : "vaani";
+  }
+
+  /** Website voice tests are recorded as simulated calls: mock calendar, CRM and email. */
+  private readonly provider: "vaani" | "simulated";
 
   get callId() {
     return this.voice?.callId ?? null;
@@ -100,7 +106,7 @@ export class Conversation {
     const at = now().toISOString();
     const res = await processVoiceEvent(
       this.db,
-      "vaani",
+      this.provider,
       {
         id: `vaani:${this.providerCallId}:byol_connected`,
         type: "call.incoming",
@@ -112,11 +118,12 @@ export class Conversation {
           answered_at: at,
           language: typeof this.reqBody?.primary_language === "string" ? this.reqBody.primary_language.slice(0, 10) : undefined,
           disclosure_given: true,
+          ...(this.provider === "simulated" ? { simulation_scenario: WEBSITE_VOICE_TEST } : {}),
         },
       },
       { source: "byol_connect" },
     );
-    this.voice = { callId: res.callId, leadId: res.leadId, provider: "vaani", isSimulated: false, finalized: false };
+    this.voice = { callId: res.callId, leadId: res.leadId, provider: this.provider, isSimulated: this.provider === "simulated", finalized: false };
     this.policy = await this.db.tx(async (tx) => {
       const { rows } = await tx.query(`select policy_id from public.calls where id = $1`, [res.callId]);
       return getPolicyById(tx, rows[0]?.policy_id ?? null);
@@ -258,7 +265,7 @@ export class Conversation {
     const ended = now();
     await processVoiceEvent(
       this.db,
-      "vaani",
+      this.provider,
       {
         id: `vaani:${this.providerCallId}:byol_closed`,
         type: "call.completed",

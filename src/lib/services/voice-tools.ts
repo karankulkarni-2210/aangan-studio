@@ -19,6 +19,7 @@ import { getPolicyById, type PolicyRecord } from "./policies";
 import { assessLead } from "./qualification";
 import { openTask } from "./tasks";
 import { recordExtractionUsage } from "./usage";
+import { WEBSITE_VOICE_TEST } from "@/lib/voice/test-session";
 
 // Bounded business tools for the voice agent. Every response is checked by the pricing guard
 // before it leaves the server. The agent can never choose recipients or read prices.
@@ -196,7 +197,8 @@ export async function captureFacts(db: Db, voice: VoiceBinding, body: z.infer<ty
         turnIndex: call.capture_turns,
         now: now(),
       },
-      { simulated: call.is_simulated },
+      // Website voice tests are simulated (mock providers) but still use live AI extraction.
+      { simulated: call.is_simulated && call.simulation_scenario !== WEBSITE_VOICE_TEST },
     );
   }
 

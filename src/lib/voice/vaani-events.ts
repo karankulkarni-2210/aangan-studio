@@ -96,6 +96,9 @@ export async function handleVaaniWebhook(db: Db, raw: string, token: string | nu
     );
     return { accepted: true, mapped: false, event: parsed.data.event };
   }
+  // A website voice test is recorded as a simulated call; its Vaani events must not create a real one.
+  const { rows: test } = await db.query(`select 1 from public.calls where provider = 'simulated' and provider_call_id = $1`, [mapped.data.call_id]);
+  if (test.length) return { accepted: true, mapped: false, event: parsed.data.event };
   const result = await processVoiceEvent(db, "vaani", mapped, payload);
   return { accepted: true, mapped: true, event: parsed.data.event, call_id: result.callId, lead_id: result.leadId, status: result.status, duplicate: result.duplicate, stale: result.stale };
 }

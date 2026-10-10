@@ -1687,6 +1687,95 @@
         }
       }
     },
+    "/api/v1/demo/voice-session": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "summary": "Start a live in-browser voice test (demo mode only)",
+        "description": "Starts a Vaani WebRTC session with the studio's agent. Recorded as a simulated call (mock calendar, CRM and email) with live AI extraction. 503 when the voice bridge is offline or not configured. 3 per minute.",
+        "operationId": "postApiV1DemoVoiceSession",
+        "security": [
+          {
+            "staffJwt": []
+          }
+        ],
+        "x-contract-addition": true,
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceTestSession"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/bookings": {
       "get": {
         "tags": [
@@ -7521,6 +7610,35 @@
           "expires_at",
           "sandbox",
           "staff"
+        ],
+        "additionalProperties": false
+      },
+      "VoiceTestSession": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Short-lived LiveKit token for this one room"
+          },
+          "connection_url": {
+            "type": "string"
+          },
+          "room_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "simulated": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "token",
+          "connection_url",
+          "room_name",
+          "simulated"
         ],
         "additionalProperties": false
       },

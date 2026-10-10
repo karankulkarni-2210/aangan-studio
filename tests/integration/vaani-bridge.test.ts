@@ -81,6 +81,18 @@ describe("Vaani BYOL bridge", () => {
     expect(rows[0].n).toBe(0);
   });
 
+  it("records a website voice test as a simulated call (mock providers)", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${bridge.port}/vaani/byol/room-web-test`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    const frames: Array<Record<string, unknown>> = [];
+    ws.on("message", (d) => frames.push(JSON.parse(d.toString())));
+    await new Promise<void>((resolve, reject) => { ws.once("open", () => resolve()); ws.once("error", reject); });
+    ws.send(JSON.stringify({ interaction_type: "response_required", response_id: 1, call_id: "room-web-test", transcript: [], req_body: { metadata: { aangan_test: true } } }));
+    await waitFor(async () => frames.some((f) => f.response_type === "response"));
+    ws.close();
+    const { rows } = await db.query(`select c.provider, c.is_simulated, c.simulation_scenario, l.is_simulated as lead_sim from public.calls c join public.leads l on l.id = c.lead_id where c.provider_call_id = 'room-web-test'`);
+    expect(rows).toEqual([{ provider: "simulated", is_simulated: true, simulation_scenario: "website_voice_test", lead_sim: true }]);
+  });
+
   it("takes the caller's correction instead of asking the same question again", async () => {
     const c = await connect("room-correct");
     await c.say(null);
