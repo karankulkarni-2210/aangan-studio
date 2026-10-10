@@ -119,4 +119,15 @@ describe("consultation booking", () => {
     const again = await book(leadId, { decision: "book", slot_start: slots[2].start, caller_confirmed: true, idempotency_key: "third-attempt" });
     expect(again.body.code).toBe("already_booked");
   });
+
+  it("offers alternatives beyond the next 24 hours (Saturday-evening conflict, Sunday closed)", async () => {
+    // Saturday 12:33 IST: the only remaining slot today is 17:00; the next ones are on Monday.
+    setClock(() => new Date("2026-10-10T07:03:00Z"));
+    const { leadId, slots } = await qualifiedLead();
+    expect(slots[0].start).toBe("2026-10-10T11:30:00.000Z");
+    await db.query(`insert into public.mock_remote_objects (provider, object_kind, remote_id, lookup_key) values ('calcom', 'slot_taken', 'sim_sat', $1)`, [slots[0].start]);
+    const res = await book(leadId, { decision: "book", slot_start: slots[0].start, caller_confirmed: true, idempotency_key: "sat-evening-1" });
+    expect(res.status).toBe(409);
+    expect(res.body.details.alternatives[0].start).toBe("2026-10-12T05:30:00.000Z"); // Monday 11:00 IST
+  });
 });

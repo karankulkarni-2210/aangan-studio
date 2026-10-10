@@ -58,7 +58,7 @@ describe("model output validation", () => {
     expect(r.evidence[0].status).toBe("needs_confirmation");
   });
   it("never assumes an unknown place is outside the boundary", () => {
-    const r = run("The flat is in Erandwane.", out([fact({ field: "location", quote: "Erandwane", text_value: "Erandwane" })]));
+    const r = run("The flat is in Shirwal.", out([fact({ field: "location", quote: "Shirwal", text_value: "Shirwal" })]));
     expect(r.evidence[0].value).toMatchObject({ in_area: null });
   });
   it("adds a pricing escalation even when the model misses it", () => {

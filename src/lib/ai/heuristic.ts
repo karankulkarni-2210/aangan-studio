@@ -95,8 +95,13 @@ export function createHeuristicExtractor(): Extractor {
           }
         }
 
-        const name = /\b(?:my name is|this is|i am|i'm)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/.exec(text);
-        if (name) facts.push(fact({ field: "contact_name", utterance_seq: seq, quote: name[0], text_value: name[1] }));
+        // "my name is X" anywhere; "this is / I am / I'm X" only when the name was just asked
+        // (otherwise "I am looking for…" would become a name).
+        const NAME = String.raw`([a-z][a-z'.-]*(?:\s+[a-z][a-z'.-]*)?)`;
+        const name =
+          new RegExp(String.raw`\b(?:my name is|my name's|name is)\s+${NAME}`, "i").exec(text) ??
+          (asked === "contact_name" ? new RegExp(String.raw`\b(?:this is|i am|i'm|it's)\s+${NAME}`, "i").exec(text) : null);
+        if (name) facts.push(fact({ field: "contact_name", utterance_seq: seq, quote: name[0], text_value: name[1].replace(/[.!,]$/, "") }));
         else if (asked === "contact_name" && text.trim().split(/\s+/).length <= 4) {
           facts.push(fact({ field: "contact_name", utterance_seq: seq, quote: text.trim().replace(/[.!]$/, ""), text_value: text.trim().replace(/[.!]$/, "") }));
         }

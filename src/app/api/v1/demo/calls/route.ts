@@ -5,6 +5,9 @@ import { jsonResponse, route } from "@/lib/http/route";
 import { runScenarioById } from "@/lib/simulation/runner";
 import { listScenarios } from "@/lib/simulation/scenarios";
 
+// A simulated call runs the whole workflow (many database round trips); allow up to a minute.
+export const maxDuration = 60;
+
 const liveGuard = () => {
   if (env.appMode() === "live") throw new ApiError(404, "demo_unavailable", "Simulated calls are unavailable in live mode");
 };

@@ -1,8 +1,18 @@
-# Qualification policy (sample, for Codex review)
+# Qualification policy
 
-> **DEMO ONLY.** Every service, boundary, threshold, script and deadline here is an invented sample for the MVP, labelled "Demo data and sample business rules". None of it is Aangan Studio's actual commercial policy. Replace it (through `POST /api/v1/policies` then publish) before any live pilot.
+> **Source: Nikhil's own rules (October 2026).** The policy now follows `qualified.md` (his five-criteria rubric) and `services.md` (services, exclusions, service area, timelines), checked against the September 2026 enquiry log. The internal pricing guide is deliberately **not** loaded anywhere: the assistant only uses Nikhil's approved deflection line, and the speech guard blocks his "never say" phrases.
 
-No Claude Chat-produced policy was supplied, so Claude Code seeded the build plan's sample rules, as Prompt 0 allows. The editable source is [`config/policy.demo.json`](../config/policy.demo.json). It is published as v1 by `supabase/seed.sql`, and the server validates it with `src/lib/policy/schema.ts`.
+The editable source is [`config/policy.demo.json`](../config/policy.demo.json) (published by `supabase/seed.sql`; change it in Settings or via `POST /api/v1/policies` then publish). The server validates it with `src/lib/policy/schema.ts`.
+
+| Nikhil's criterion | How it is enforced |
+|---|---|
+| 1. Real project, not advice | Services: residential (full home, floor or room, with execution) and offices/clinics/studios are offered. Advice, styling, Vastu-only, furniture-only, structural work, restaurants, hotels, retail and gyms are declined with his wording. Offices under ~500 sq ft are below scope; over ~3,000 sq ft go to review. |
+| 2. Service area | Pune city and PCMC localities from `services.md` are accepted; Talegaon, Lonavala, Nashik, Mumbai and other cities are declined. Unknown places go to review, never assumed outside. |
+| 3. Realistic timeline | The assistant asks "When would you need the project complete?". Under six weeks is declined; later dates are fine. |
+| 4. Budget band | Never asked or probed. Not mentioned (or declined) counts as qualified. Only a volunteered budget clearly below any project's scope (under ₹3 lakh, e.g. ₹1–1.5 lakh for a flat) is declined. |
+| 5. Decision-maker | Not asked (his rule: if unclear, treat as qualified and leave it to the designer). The transcript goes to the designer with the handoff. |
+| Pricing questions | Deflected with his exact line, a pricing task goes to the front desk, and the enquiry is not disqualified. |
+| Any failed criterion | Closed gracefully with his line ("This sounds like it may not be the right fit for us right now…") and not forwarded to a designer. |
 
 Intent classification is separate from qualification:
 - **Gemini proposes:** intent, facts with quotes, requests and an advisory route.

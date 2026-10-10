@@ -6,11 +6,13 @@ import type { RouteContext } from "@/lib/http/route";
 import { redact } from "@/lib/log";
 import { verifyVaaniSignature } from "@/lib/providers/vaani";
 import { now } from "@/lib/runtime";
+import { handleVaaniWebhook } from "@/lib/voice/vaani-events";
 import { agentContext, processVoiceEvent, voiceEventSchema } from "./calls";
 
 // Provider-authenticated, deduplicated voice webhooks.
-//  * vaani: X-VaaniVoice-Signature = "sha256=" + HMAC-SHA256(VAANI_WEBHOOK_SECRET, raw body).
-//  * simulated: same scheme in header X-Aangan-Signature with SIMULATED_VOICE_WEBHOOK_SECRET.
+//  * vaani (Vaani AI, app.vaanivoice.ai): unsigned JSON events, authenticated by `?token=` =
+//    VAANI_WEBHOOK_SECRET; mapped in src/lib/voice/vaani-events.ts.
+//  * simulated: X-Aangan-Signature = "sha256=" + HMAC-SHA256(SIMULATED_VOICE_WEBHOOK_SECRET, raw body).
 //    The simulated provider does not exist in live mode.
 // Replay protection: event-id dedupe plus an age window on the signed `created` timestamp.
 
@@ -22,11 +24,13 @@ export async function handleVoiceWebhook(ctx: RouteContext, endpoint: "incoming"
   if (!VOICE_PROVIDERS.includes(provider)) throw notFound("Voice provider");
   if (provider === "simulated" && env.appMode() === "live") throw notFound("Voice provider");
 
-  const secret = provider === "vaani" ? env.vaaniWebhookSecret() : env.simulatedWebhookSecret();
-  if (!secret) throw unavailable("webhook_not_configured", `Webhook secret for ${provider} is not configured`);
+  // Vaani AI posts its own (unsigned) event shape to either endpoint; authenticated by URL token.
+  if (provider === "vaani") return handleVaaniWebhook(ctx.db, await ctx.rawBody(), ctx.url.searchParams.get("token"));
+
+  const secret = env.simulatedWebhookSecret();
+  if (!secret) throw unavailable("webhook_not_configured", "Webhook secret for the simulated provider is not configured");
   const raw = await ctx.rawBody();
-  const header = provider === "vaani" ? ctx.req.headers.get("x-vaanivoice-signature") : ctx.req.headers.get("x-aangan-signature");
-  if (!verifyVaaniSignature(raw, header, secret)) throw unauthorized("Invalid webhook signature");
+  if (!verifyVaaniSignature(raw, ctx.req.headers.get("x-aangan-signature"), secret)) throw unauthorized("Invalid webhook signature");
 
   let payload: unknown;
   try {

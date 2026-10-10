@@ -57,16 +57,21 @@ describe("voice webhooks", () => {
     expect(res.body.code).toBe("event_outside_window");
   });
 
-  it("stores signed but unmappable Vaani events without guessing (202, failed)", async () => {
-    process.env.VAANI_WEBHOOK_SECRET = "vaani-test-secret-vaani-test-secret";
-    const event = { id: "evt_vaani_1", type: "call.completed", created: Math.floor(Date.now() / 1000), data: { duration: 42, phone: "+91 98•••••12" } };
-    const res = await signedWebhook(statusRoute.POST, "/webhooks/voice/vaani/status", event, { provider: "vaani", secret: process.env.VAANI_WEBHOOK_SECRET });
-    expect(res.status).toBe(202);
-    expect(res.body.mapped).toBe(false);
-    const { rows } = await db.query(`select processing_status from public.provider_events where event_id = 'evt_vaani_1'`);
-    expect(rows[0].processing_status).toBe("failed");
-    const { rows: calls } = await db.query(`select count(*)::int as n from public.calls`);
-    expect(calls[0].n).toBe(0);
+  it("Vaani AI events need the URL token; unknown events are stored without changing state", async () => {
+    process.env.VAANI_WEBHOOK_SECRET = "v".repeat(48);
+    const post = (token: string, body: unknown) =>
+      call(statusRoute.POST, "POST", `/webhooks/voice/vaani/status?token=${token}`, { body, params: { provider: "vaani" } });
+    expect((await post("wrong", { event: "call_started", room_name: "room-1" })).status).toBe(401);
+    const started = await post("v".repeat(48), { event: "call_started", room_name: "room-1", status: "dialing", phone_number: "+919000001111" });
+    expect(started.body).toMatchObject({ accepted: true, mapped: true, status: "ringing" });
+    const transfer = await post("v".repeat(48), { event: "human_transfer_initiated", room_name: "room-1", transfer_type: "warm" });
+    expect(transfer.body).toMatchObject({ accepted: true, mapped: false });
+    const ended = await post("v".repeat(48), { event: "call_ended", room_name: "room-1", call_duration: 42.5, end_reason: "user_hangup" });
+    expect(ended.body).toMatchObject({ mapped: true, status: "completed" });
+    const again = await post("v".repeat(48), { event: "call_ended", room_name: "room-1", call_duration: 42.5 });
+    expect(again.body.duplicate).toBe(true);
+    const { rows } = await db.query(`select status, from_number, duration_seconds from public.calls where provider_call_id = 'room-1'`);
+    expect(rows[0]).toEqual({ status: "completed", from_number: "+919000001111", duration_seconds: 43 });
   });
 
   it("enforces the body-size limit", async () => {

@@ -160,9 +160,36 @@ export async function computeDashboard(db: Db, staff: StaffActor, query: z.infer
   );
   const simCalls = calls.filter((c) => c.is_simulated).length;
 
+  // ---- Daily series (IST calendar days) ----
+  const IST_MS = 5.5 * 3600000;
+  const dayKey = (d: Date | string) => new Date(new Date(d).getTime() + IST_MS).toISOString().slice(0, 10);
+  const daily = new Map<string, { date: string; calls: number; eligible: number; responded_within_target: number; leads: number; qualified: number }>();
+  const lastDay = dayKey(new Date(to.getTime() - 1));
+  for (let d = new Date(`${dayKey(from)}T00:00:00Z`); ; d = new Date(d.getTime() + 86400000)) {
+    const key = d.toISOString().slice(0, 10);
+    daily.set(key, { date: key, calls: 0, eligible: 0, responded_within_target: 0, leads: 0, qualified: 0 });
+    if (key >= lastDay) break;
+  }
+  for (const c of calls) {
+    const row = daily.get(dayKey(c.arrived_at));
+    if (!row) continue;
+    row.calls++;
+    if (!c.sla_exclusion_reason) {
+      row.eligible++;
+      if (c.response_s !== null && Number(c.response_s) >= 0 && Number(c.response_s) <= target) row.responded_within_target++;
+    }
+  }
+  for (const l of leads) {
+    const row = daily.get(dayKey(l.intake_at));
+    if (!row) continue;
+    row.leads++;
+    if (l.qualification_status === "qualified") row.qualified++;
+  }
+
   return {
     period: { from: from.toISOString(), to: to.toISOString(), timezone: "Asia/Kolkata", data: query.data },
     generated_at: now().toISOString(),
+    daily: [...daily.values()],
     freshness: {
       latest_call_event_at: fresh[0].latest_call_event_at ? new Date(fresh[0].latest_call_event_at).toISOString() : null,
       latest_lead_update_at: fresh[0].latest_lead_update_at ? new Date(fresh[0].latest_lead_update_at).toISOString() : null,

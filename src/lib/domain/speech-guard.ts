@@ -16,6 +16,8 @@ const PATTERNS: Array<{ code: string; re: RegExp }> = [
   { code: "rate_unit", re: /\bpsf\b/i },
   { code: "discount_or_tax", re: /\b(?:discount|gst|tax(?:es)?|\d+\s*%\s*off|free\s+of\s+cost)\b/i },
   { code: "commitment", re: /\b(?:guarantee[ds]?|we\s+will\s+(?:finish|complete|deliver|hand\s*over)|(?:completed|ready|done|delivered)\s+by\s+\w+)/i },
+  // Nikhil's "never say" phrases, even without a number.
+  { code: "price_phrase", re: /\b(?:it(?:'|’)?ll|it\s+will|it\s+would|that\s+would|that(?:'|’)?ll)\s+cost\b|\b(?:rates?|prices?|pricing)\s+starts?\b|\bit(?:'|’)?s\s+typically\b|\btypically\s+(?:costs?|runs?|comes?\s+to)\b|\bballpark\b/i },
   { code: "total_or_estimate", re: new RegExp(`\\b(?:total|estimate[ds]?|quote[ds]?|costs?|price[ds]?|charges?|starting)\\b[^.?!]{0,30}?\\b${NUMBER}`, "i") },
 ];
 

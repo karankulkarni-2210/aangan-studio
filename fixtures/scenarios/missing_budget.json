@@ -1,7 +1,7 @@
 {
   "id": "missing_budget",
   "title": "Office enquiry with the budget withheld",
-  "description": "Small-office interior in Kharadi; the caller declines to share a budget. Missing budget means needs_review, never automatic rejection.",
+  "description": "Small office in Kharadi (800 sq ft); the caller prefers not to share a budget. Per Nikhil's rubric a budget is never probed and its absence still qualifies, so the lead is handed to a designer.",
   "synthetic": true,
   "caller_phone": "+919000000103",
   "turns": [
@@ -107,11 +107,11 @@
     "reason": "agent_completed"
   },
   "expected": {
-    "decision": "needs_review",
+    "decision": "qualified",
     "discovery_status": "complete",
     "escalations": [],
     "booking_status": "none",
-    "handoff_purpose": "front_desk_review",
-    "crm_synced": false
+    "handoff_purpose": "designer_handoff",
+    "crm_synced": true
   }
 }

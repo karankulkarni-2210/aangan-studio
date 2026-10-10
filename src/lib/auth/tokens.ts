@@ -18,6 +18,8 @@ function remoteJwks(supabaseUrl: string) {
 export interface VerifiedToken {
   sub: string;
   source: "supabase_jwks" | "supabase_hs256" | "demo";
+  /** Evaluator sandbox session (demo token with the sandbox claim): simulated records only, no config writes. */
+  sandbox: boolean;
 }
 
 export class TokenError extends Error {}
@@ -49,7 +51,7 @@ export async function verifyAccessToken(token: string): Promise<VerifiedToken> {
       if (!secret) continue;
       try {
         const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), { ...opts, algorithms: ["HS256"] });
-        return { sub: checkClaims(payload), source };
+        return { sub: checkClaims(payload), source, sandbox: source === "demo" && payload.aangan_sandbox === true };
       } catch (err) {
         if (err instanceof TokenError) throw err;
       }
@@ -66,7 +68,7 @@ export async function verifyAccessToken(token: string): Promise<VerifiedToken> {
         algorithms: ["ES256", "RS256"],
         issuer: `${supabaseUrl.replace(/\/$/, "")}/auth/v1`,
       });
-      return { sub: checkClaims(payload), source: "supabase_jwks" };
+      return { sub: checkClaims(payload), source: "supabase_jwks", sandbox: false };
     } catch (err) {
       if (err instanceof TokenError) throw err;
       throw new TokenError("token signature not accepted");

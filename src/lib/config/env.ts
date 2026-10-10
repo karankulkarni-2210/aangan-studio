@@ -58,8 +58,16 @@ export const env = {
   dispatchSecret: () => v("DISPATCH_SECRET") ?? v("CRON_SECRET"),
   vaaniWebhookSecret: () => v("VAANI_WEBHOOK_SECRET"),
   simulatedWebhookSecret: () => v("SIMULATED_VOICE_WEBHOOK_SECRET"),
-  vaani: () => ({ apiKey: v("VAANI_API_KEY"), baseUrl: v("VAANI_API_BASE_URL") ?? "https://www.vaanilabs.in", flowId: v("VAANI_FLOW_ID") }),
-  gemini: () => ({ apiKey: v("GEMINI_API_KEY"), model: v("GEMINI_MODEL") ?? "gemini-3.8-flash", timeoutMs: Number(v("GEMINI_TIMEOUT_MS") ?? 8000) }),
+  /** Vaani AI (app.vaanivoice.ai): REST with X-API-Key; BYOL WebSocket bridge authenticated by VAANI_BYOL_TOKEN. */
+  vaani: () => ({ apiKey: v("VAANI_API_KEY"), baseUrl: v("VAANI_API_BASE_URL") ?? "https://api.vaanivoice.ai", byolToken: v("VAANI_BYOL_TOKEN") }),
+  gemini: () => ({
+    apiKey: v("GEMINI_API_KEY"),
+    model: v("GEMINI_MODEL") ?? "gemini-3.8-flash",
+    timeoutMs: Number(v("GEMINI_TIMEOUT_MS") ?? 8000),
+    // Voice turns are latency-sensitive. "LOW" verified on gemini-3.8-flash (2026-10-10, ~4 s per turn);
+    // "MINIMAL" is rejected by that model (HTTP 400).
+    thinkingLevel: (v("GEMINI_THINKING_LEVEL") ?? "LOW").toUpperCase(),
+  }),
   calcom: () => ({
     apiKey: v("CALCOM_API_KEY"),
     eventTypeId: parseCalEventTypeId(v("CALCOM_EVENT_TYPE_ID")),
@@ -86,7 +94,7 @@ export const env = {
 
 /** Variables that must be present for each integration to run live. Names only. */
 export const INTEGRATION_ENV: Record<IntegrationProvider, string[]> = {
-  vaani: ["VAANI_API_KEY", "VAANI_WEBHOOK_SECRET"],
+  vaani: ["VAANI_API_KEY", "VAANI_WEBHOOK_SECRET", "VAANI_BYOL_TOKEN"],
   gemini: ["GEMINI_API_KEY"],
   calcom: ["CALCOM_API_KEY", "CALCOM_EVENT_TYPE_ID"],
   hubspot: ["HUBSPOT_ACCESS_TOKEN", "HUBSPOT_PIPELINE_ID", "HUBSPOT_DEALSTAGE_ID"],
@@ -115,7 +123,7 @@ export function liveSecurityGaps(): string[] {
   if (!v("SUPABASE_URL") && !v("SUPABASE_JWT_SECRET")) gaps.push("SUPABASE_URL (JWKS) or SUPABASE_JWT_SECRET");
   if (!v("VOICE_TOOL_SECRET") || (v("VOICE_TOOL_SECRET")?.length ?? 0) < 32) gaps.push("VOICE_TOOL_SECRET (>= 32 chars)");
   if (!env.dispatchSecret() || (env.dispatchSecret()?.length ?? 0) < 32) gaps.push("DISPATCH_SECRET or CRON_SECRET (>= 32 chars)");
-  if (!v("VAANI_WEBHOOK_SECRET")) gaps.push("VAANI_WEBHOOK_SECRET");
+  if (!v("VAANI_WEBHOOK_SECRET") || (v("VAANI_WEBHOOK_SECRET")?.length ?? 0) < 32) gaps.push("VAANI_WEBHOOK_SECRET (>= 32 chars)");
   if (!v("APP_BASE_URL")?.startsWith("https://")) gaps.push("APP_BASE_URL (https)");
   return gaps;
 }

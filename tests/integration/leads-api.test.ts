@@ -34,8 +34,8 @@ describe("lead inbox", () => {
   });
 
   it("filters by stage, service, owner and paginates", async () => {
-    const review = await call(leadsRoute.GET, "GET", "/api/v1/leads?status=needs_review", { as: "admin" });
-    expect(review.body.data.map((l: { id: string }) => l.id)).toEqual([r.missing_budget.lead_id]);
+    const notFit = await call(leadsRoute.GET, "GET", "/api/v1/leads?status=not_fit", { as: "admin" });
+    expect(notFit.body.data.map((l: { id: string }) => l.id)).toEqual([r.unsupported_construction.lead_id]);
     const office = await call(leadsRoute.GET, "GET", "/api/v1/leads?service=small_office_interiors", { as: "admin" });
     expect(office.body.pagination.total).toBe(2);
     const mine = await call(leadsRoute.GET, "GET", "/api/v1/leads?owner=me", { as: "designer" });
@@ -112,20 +112,20 @@ describe("authorised human edits", () => {
     const res = await call(leadRoute.PATCH, "PATCH", `/api/v1/leads/${id}`, {
       as: "front_desk",
       params: { id },
-      body: { version: lead.version, facts: [{ field: "budget", paise: 120_000_000 }], edit_reason: "Caller shared budget on callback" },
+      body: { version: lead.version, facts: [{ field: "budget", paise: 10_000_000 }], edit_reason: "Caller shared budget on callback" },
     });
     expect(res.status).toBe(200);
-    expect(res.body.qualification.decision).toBe("qualified");
+    expect(res.body.qualification.decision).toBe("not_fit");
     const { rows } = await db.query(`select kind, decision, policy_version, created_by from public.qualification_assessments where lead_id = $1 order by created_at`, [id]);
     // In-call and end-of-call automatic assessments are kept; the human reassessment is appended.
     expect(rows.map((a) => [a.kind, a.decision])).toEqual([
-      ["automatic", "needs_review"],
-      ["automatic", "needs_review"],
-      ["reassessment", "qualified"],
+      ["automatic", "qualified"],
+      ["automatic", "qualified"],
+      ["reassessment", "not_fit"],
     ]);
     expect(rows[2].created_by).not.toBeNull();
     const { rows: h } = await db.query(`select purpose from public.handoffs where lead_id = $1 order by created_at`, [id]);
-    expect(h.map((x) => x.purpose)).toEqual(["front_desk_review", "designer_handoff"]);
+    expect(h.map((x) => x.purpose)).toEqual(["designer_handoff"]);
   });
 
   it("designers cannot reassign or override qualification", async () => {

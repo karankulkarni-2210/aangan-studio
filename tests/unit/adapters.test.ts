@@ -140,6 +140,14 @@ describe("Gemini extractor", () => {
     expect(run).toMatchObject({ mode: "live", extractor: "gemini-3.8-flash", usage: { inputTokens: 900, outputTokens: 120, thinkingTokens: 40, estimated: false } });
   });
 
+  it("sends only JSON Schema keywords Gemini supports (unsupported ones cause HTTP 400)", async () => {
+    const { extractionJsonSchema } = await import("@/lib/ai/schema");
+    const text = JSON.stringify(extractionJsonSchema());
+    expect(text).not.toMatch(/"(minLength|maxLength|minItems|maxItems|pattern|exclusiveMinimum|exclusiveMaximum|\$schema)":/);
+    expect(text).toContain('"properties":{"intent"');
+    expect(text).toContain('"facts"');
+  });
+
   it("rejects schema-invalid output", async () => {
     const s = stub([{ status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify({ intent: "buy_now", facts: "all" }) }] } }] } }]);
     await expect(createGeminiExtractor(s.fetchImpl).extract(req)).rejects.toBeInstanceOf(GeminiError);

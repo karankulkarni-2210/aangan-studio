@@ -1,0 +1,49 @@
+# Render Blueprint for the Vaani voice bridge (WebSockets need an always-on service; Vercel
+# functions cannot hold them). Not deployed automatically: connect the GitHub repo in Render and
+# set the secret env vars in the dashboard (sync: false). The Next.js app stays on Vercel.
+services:
+  - type: web
+    name: aangan-vaani-bridge
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: npm ci --include=dev
+    startCommand: npm run bridge
+    healthCheckPath: /health
+    envVars:
+      - key: APP_MODE
+        value: demo
+      - key: BRIDGE_RUN_DISPATCHER
+        value: "true"
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: VAANI_API_KEY
+        sync: false
+      - key: VAANI_BYOL_TOKEN
+        sync: false
+      - key: VAANI_WEBHOOK_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CAL_API_KEY
+        sync: false
+      - key: CAL_EVENT_TYPE_ID
+        sync: false
+      - key: HUBSPOT_ACCESS_TOKEN
+        sync: false
+      - key: HUBSPOT_PIPELINE_ID
+        sync: false
+      - key: HUBSPOT_QUALIFIED_STAGE_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: DESIGNER_HANDOFF_EMAIL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: VOICE_TOOL_SECRET
+        sync: false

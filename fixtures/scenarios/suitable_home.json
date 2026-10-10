@@ -1,7 +1,7 @@
 {
   "id": "suitable_home",
   "title": "Suitable full-home enquiry with a pricing question",
-  "description": "New 3BHK in Baner, confirmed carpet area, 15 lakh budget, starting next month. Asks for a per-square-foot rate mid-call (escalated to a human, no price given). Books a consultation.",
+  "description": "New 3BHK in Baner, confirmed carpet area, 15 lakh budget volunteered, needs it done in about four months. Asks for a per-square-foot rate mid-call (the assistant deflects with Nikhil's wording and escalates; no price given). Books a consultation.",
   "synthetic": true,
   "caller_phone": "+919000000101",
   "turns": [
@@ -50,14 +50,14 @@
       }
     },
     {
-      "caller": "We'd like to start next month, once we get the keys.",
+      "caller": "We'd like it all done in about four months.",
       "extraction": {
         "intent": "new_project",
         "facts": [
           {
             "field": "timeline",
-            "quote": "start next month",
-            "number_value": 1,
+            "quote": "in about four months",
+            "number_value": 4,
             "unit": "months"
           }
         ]

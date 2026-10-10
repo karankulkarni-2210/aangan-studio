@@ -6,6 +6,8 @@ import { outcomeBodySchema } from "@/lib/services/outcomes";
 import { bookingBodySchema, slotsQuerySchema } from "@/lib/services/bookings";
 import { dashboardQuerySchema } from "@/lib/services/dashboard";
 import { costEntrySchema } from "@/lib/services/cost-entries";
+import { bookingsQuerySchema } from "@/lib/services/directory";
+import { demoSessionSchema } from "@/lib/services/demo-session";
 import { captureFactsSchema, escalateSchema, requestHandoffSchema } from "@/lib/services/voice-tools";
 
 // Builds openapi.json (OpenAPI 3.1 / JSON Schema 2020-12) from the same zod schemas the server
@@ -34,6 +36,7 @@ const requests: Record<string, ZodType> = {
   PolicyDraftRequest: z.object({ config: z.record(z.string(), z.unknown()).describe("Full policy config; see config/policy.demo.json") }).strict(),
   CostEntryRequest: costEntrySchema,
   DemoCallRequest: z.object({ scenario: z.string(), run_jobs: z.boolean().default(true) }).strict(),
+  DemoSessionRequest: demoSessionSchema,
   VoiceEvent: voiceEventSchema,
   CaptureFactsRequest: captureFactsSchema,
   EvaluateQualificationRequest: z.object({}).strict(),
@@ -58,6 +61,9 @@ const responses: Record<string, ZodType> = {
   Me: S.Me,
   Health: S.Health,
   Ready: S.Ready,
+  DemoSession: S.DemoSession,
+  StaffList: S.StaffList,
+  BookingList: S.BookingList,
   CostEntryResponse: S.CostEntryResponse,
   DispatchResult: S.DispatchResult,
   DemoScenarioList: S.DemoScenarioList,
@@ -89,9 +95,12 @@ export const OPERATIONS: Op[] = [
   { method: "get", path: "/api/v1/integrations", tag: "Integrations", summary: "Integration modes and health (no secrets)", security: "staff", roles: ["admin", "front_desk"], responses: { 200: "Integrations", ...STAFF_ERRORS } },
   { method: "get", path: "/api/v1/demo/calls", tag: "Demo", summary: "List simulated scenarios (demo mode only)", security: "staff", roles: ["admin", "front_desk"], responses: { 200: "DemoScenarioList", 404: "ErrorResponse", ...STAFF_ERRORS }, addition: true },
   { method: "post", path: "/api/v1/demo/calls", tag: "Demo", summary: "Run a simulated call (unavailable in live mode)", security: "staff", roles: ["admin", "front_desk"], body: "DemoCallRequest", responses: { 201: "SimulationResult", 404: "ErrorResponse", ...STAFF_ERRORS } },
+  { method: "post", path: "/api/v1/demo/session", tag: "Demo", summary: "Start an evaluator sandbox session (demo mode only)", description: "Unauthenticated, rate-limited per IP. Returns a 4-hour token for a seeded demo identity. Sandbox sessions only see and change simulated leads, never see live calendar availability, and cannot edit policies or costs (403 sandbox_read_only). 404 in live mode.", security: "none", body: "DemoSessionRequest", responses: { 201: "DemoSession", 400: "ErrorResponse", 404: "ErrorResponse", 429: "ErrorResponse", 503: "ErrorResponse" }, addition: true },
+  { method: "get", path: "/api/v1/bookings", tag: "Bookings", summary: "List consultations", description: "Bookings across leads, newest slot first. Row-level security applies (designers see their own leads). `confirmed` is true only with a provider booking id.", security: "staff", query: bookingsQuerySchema, responses: { 200: "BookingList", 400: "ErrorResponse", ...STAFF_ERRORS }, addition: true },
+  { method: "get", path: "/api/v1/staff", tag: "Session", summary: "Staff roster", description: "For assigning designers and reviewing handoff recipients. Sandbox sessions see demo staff only.", security: "staff", roles: ["admin", "front_desk"], responses: { 200: "StaffList", ...STAFF_ERRORS }, addition: true },
   { method: "get", path: "/api/v1/me", tag: "Session", summary: "Current staff identity and role", security: "staff", responses: { 200: "Me", ...STAFF_ERRORS }, addition: true },
   { method: "post", path: "/api/v1/cost-entries", tag: "Costs", summary: "Record an invoiced cost for reconciliation", security: "staff", roles: ["admin"], body: "CostEntryRequest", responses: { 201: "CostEntryResponse", 400: "ErrorResponse", ...STAFF_ERRORS }, addition: true },
-  { method: "post", path: "/webhooks/voice/{provider}/incoming", tag: "Voice webhooks", summary: "Incoming call event", description: "Provider-signed (vaani: X-VaaniVoice-Signature; simulated: X-Aangan-Signature; value `sha256=<hex HMAC of raw body>`). Deduplicated by event id. Returns the per-call tool session and agent context.", security: "webhook", body: "VoiceEvent", responses: { 200: "IncomingCallResponse", 202: "UnmappedEventResponse", 400: "ErrorResponse", 401: "ErrorResponse", 404: "ErrorResponse", 413: "ErrorResponse", 429: "ErrorResponse", 503: "ErrorResponse" } },
+  { method: "post", path: "/webhooks/voice/{provider}/incoming", tag: "Voice webhooks", summary: "Incoming call event", description: "simulated: X-Aangan-Signature `sha256=<hex HMAC of raw body>`, normalised event body; returns the per-call tool session and agent context. vaani (Vaani AI): unsigned Vaani event body authenticated by `?token=`; live calls are registered by the BYOL bridge. Deduplicated by event id.", security: "webhook", body: "VoiceEvent", responses: { 200: "IncomingCallResponse", 202: "UnmappedEventResponse", 400: "ErrorResponse", 401: "ErrorResponse", 404: "ErrorResponse", 413: "ErrorResponse", 429: "ErrorResponse", 503: "ErrorResponse" } },
   { method: "post", path: "/webhooks/voice/{provider}/status", tag: "Voice webhooks", summary: "Call status event", description: "Monotonic: out-of-order events never regress a call. Terminal status enqueues finalisation.", security: "webhook", body: "VoiceEvent", responses: { 200: "StatusEventResponse", 202: "UnmappedEventResponse", 400: "ErrorResponse", 401: "ErrorResponse", 404: "ErrorResponse", 413: "ErrorResponse", 429: "ErrorResponse", 503: "ErrorResponse" } },
   { method: "post", path: "/internal/voice/tools/capture-facts", tag: "Voice tools", summary: "Record utterances, extract facts with evidence, get the next question", security: "voice", body: "CaptureFactsRequest", responses: { 200: "CaptureFactsResponse", ...VOICE_ERRORS } },
   { method: "post", path: "/internal/voice/tools/evaluate-qualification", tag: "Voice tools", summary: "Deterministic qualification against the pinned policy", security: "voice", body: "EvaluateQualificationRequest", responses: { 200: "EvaluateQualificationResponse", ...VOICE_ERRORS } },
@@ -171,7 +180,7 @@ export function buildOpenApi() {
         voiceServiceToken: { type: "http", scheme: "bearer", description: "VOICE_TOOL_SECRET (server-to-server)" },
         callId: { type: "apiKey", in: "header", name: "X-Aangan-Call-Id" },
         callToken: { type: "apiKey", in: "header", name: "X-Aangan-Call-Token", description: "Per-call token from the incoming webhook response" },
-        webhookSignature: { type: "apiKey", in: "header", name: "X-VaaniVoice-Signature", description: "sha256=<hex HMAC-SHA256 of the raw body>; the simulated provider uses X-Aangan-Signature" },
+        webhookSignature: { type: "apiKey", in: "header", name: "X-Aangan-Signature", description: "Simulated provider: sha256=<hex HMAC-SHA256 of the raw body>. Vaani AI events instead use the query parameter token=<VAANI_WEBHOOK_SECRET>." },
         dispatchSecret: { type: "http", scheme: "bearer", description: "DISPATCH_SECRET or CRON_SECRET" },
       },
       schemas: { ...components(requests, "input"), ...components(responses, "output") },

@@ -40,7 +40,7 @@ describe("policy versions", () => {
     const before = await simulate(db, "missing_budget");
     const next = structuredClone(policyJson);
     next.label = "Demo data and sample business rules";
-    (next.qualification_rules.find((r) => r.id === "BUDGET_AT_LEAST_8_LAKH") as { threshold: number }).threshold = 50_000_000;
+    (next.qualification_rules.find((r) => r.id === "BUDGET_NOT_CLEARLY_BELOW_SCOPE") as { threshold: number }).threshold = 50_000_000;
     const draft = await call(policiesRoute.POST, "POST", "/api/v1/policies", { as: "admin", body: { config: next } });
     expect(draft.body.validation.ok).toBe(true);
     expect((await call(publishRoute.POST, "POST", "/x", { as: "designer", params: { id: draft.body.policy.id } })).status).toBe(403);

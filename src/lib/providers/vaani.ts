@@ -1,16 +1,15 @@
 import { env } from "@/lib/config/env";
 import { hmacHex, safeEqual } from "@/lib/auth/crypto";
 
-// Vaani Labs. Verified against vaanilabs.in/docs on 2026-10-07 (OpenAPI v1):
-//  * Public API: browser voice sessions (POST /api/public/v1/voicebot/session -> ws_url, ws_token).
-//    Agents/flows are configured in the Vaani dashboard; the API has NO documented server-side
-//    tool/function calling and NO documented inbound telephony or phone-number routing.
-//  * Webhooks: call.completed, call.failed, meeting.ended, lead.created, usage.charged.
-//    Envelope { id: "evt_...", type, created (unix s), data }. The shape of `data` is not documented.
-//    Signature header X-VaaniVoice-Signature: "sha256=" + hex(HMAC-SHA256(secret, raw body)).
-//    No timestamp is signed; replay protection relies on event-id dedupe plus a `created` age check.
-// Consequently the live voice -> business-tool loop is a documented GAP: the tool endpoints are
-// exercised by the simulated provider until Vaani exposes tool calls or a bridge is built.
+// Vaani AI (app.vaanivoice.ai; docs.vaanivoice.ai, checked 2026-10-10).
+//  * REST: https://api.vaanivoice.ai, header `X-API-Key: vaani_…` (agents, trigger-call,
+//    call-history, transcript/{call_id}, call_details/{call_id}).
+//  * Live conversation: "Bring Your Own LLM" WebSocket. Vaani opens <ws_url>/<call_id> per call
+//    and sends `response_required` turns; our bridge (src/bridge/server.ts) replies with
+//    server-approved speech. See src/lib/voice/conversation.ts.
+//  * Call events: unsigned webhooks (see src/lib/voice/vaani-events.ts).
+//
+// The HMAC helpers below sign the SIMULATED provider's webhooks (header X-Aangan-Signature).
 
 export function verifyVaaniSignature(rawBody: string, header: string | null, secret: string): boolean {
   if (!header) return false;
@@ -23,16 +22,14 @@ export function signVaaniBody(rawBody: string, secret: string): string {
   return `sha256=${hmacHex(secret, rawBody)}`;
 }
 
-/** Mints a short-lived browser voice session (5-minute token). Not used by the phone path. */
-export async function createVoicebotSession(fetchImpl: typeof fetch = fetch): Promise<{ ws_url: string; expires_at: unknown }> {
+/** Read-only: call details (transcript, entities, evaluation) for reconciliation or review. */
+export async function getVaaniCallDetails(callId: string, fetchImpl: typeof fetch = fetch): Promise<unknown> {
   const cfg = env.vaani();
   if (!cfg.apiKey) throw new Error("VAANI_API_KEY is not configured");
-  const res = await fetchImpl(`${cfg.baseUrl}/api/public/v1/voicebot/session`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${cfg.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify(cfg.flowId ? { flow_id: cfg.flowId } : {}),
+  const res = await fetchImpl(`${cfg.baseUrl}/api/call_details/${encodeURIComponent(callId)}`, {
+    headers: { "X-API-Key": cfg.apiKey },
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) throw new Error(`Vaani session HTTP ${res.status}`);
-  return (await res.json()) as { ws_url: string; expires_at: unknown };
+  if (!res.ok) throw new Error(`Vaani call_details HTTP ${res.status}`);
+  return res.json();
 }

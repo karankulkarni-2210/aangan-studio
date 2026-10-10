@@ -18,7 +18,7 @@ beforeEach(async () => {
   db = await createTestDb();
 });
 
-const PRICING_SCRIPT = "A designer will confirm pricing after reviewing your scope. I can capture your details and help book a consultation.";
+const PRICING_SCRIPT = "Pricing depends on the site, the materials you choose, and the scope. Your designer will walk you through it in detail at the consultation. I can book that for you right now if you'd like.";
 
 describe("voice tool authentication and binding", () => {
   it("requires the service credential and a valid call token", async () => {
@@ -102,7 +102,8 @@ describe("human escalation boundaries", () => {
     await c.say("We need full home interiors for our flat in Baner.");
     const ev = await call(evaluateRoute.POST, "POST", "/x", { body: {}, headers: c.headers });
     expect(ev.body.decision).toBe("needs_review");
-    expect(ev.body.missing_fields).toEqual(expect.arrayContaining(["area", "budget", "timeline"]));
+    expect(ev.body.missing_fields).toEqual(expect.arrayContaining(["area", "timeline"]));
+    expect(ev.body.missing_fields).not.toContain("budget"); // never asked (Nikhil: don't probe)
     expect(ev.body.booking_eligible).toBe(false);
   });
 
@@ -148,10 +149,10 @@ describe("review regressions", () => {
     const area = await c.say("It's about 1250 square feet carpet area.", "Roughly how large is the space?");
     const callerSeq = c.nextSeq() + 1;
     await c.say("Yes, that's right.", area.body.next.prompt, { confirmations: [{ evidence_id: area.body.next.evidence_id, confirmed: true, utterance_seq: callerSeq }] });
-    await c.say("We want to start next month.", "When are you hoping to start?");
+    await c.say("We'd like it all done in about four months.", "When would you need the project complete?");
     await c.say("Our budget is 15 lakh.", "Do you have a budget in mind?");
     const ev = await call(evaluateRoute.POST, "POST", "/x", { body: {}, headers: c.headers });
-    // All six rules pass, but name and callback time are still missing.
+    // Every rule passes, but name and callback time are still missing.
     expect(ev.body.decision).toBe("needs_review");
     expect(ev.body.reasons.find((r: { rule_id: string }) => r.rule_id === "DISCOVERY_INCOMPLETE")).toBeTruthy();
     expect(ev.body.reasons.filter((r: { effect: string }) => r.effect === "not_fit")).toHaveLength(0);

@@ -16,7 +16,9 @@
     "db:migrate": "tsx --tsconfig tsx.tsconfig.json scripts/migrate.ts",
     "demo:secrets": "tsx --tsconfig tsx.tsconfig.json scripts/demo-secrets.ts",
     "demo:token": "tsx --tsconfig tsx.tsconfig.json scripts/demo-token.ts",
-    "check": "npm run typecheck && npm test && npm run demo"
+    "check": "npm run typecheck && npm test && npm run demo",
+    "bridge": "tsx --tsconfig tsx.tsconfig.json scripts/bridge.ts",
+    "policy:publish": "tsx --tsconfig tsx.tsconfig.json scripts/publish-policy.ts"
   },
   "dependencies": {
     "jose": "^6.2.12",
@@ -25,6 +27,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
+    "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -33,6 +36,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"

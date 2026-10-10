@@ -43,10 +43,12 @@ There is no internal price worksheet in this MVP. If one is added later, it must
 ```text
 Build time:   Codex (architecture, contract, review) → Claude Chat policy → Claude Code → GitHub
 
-Runtime:      Incoming call ─► Vaani Labs voice session (audio, turn-taking)
-                               │  signed webhooks             ▲ approved scripts only
+Runtime:      Incoming call ─► Vaani AI agent (audio, speech, turn-taking)
+                               │ BYOL WebSocket per call      ▲ every spoken line comes from us
                                ▼                              │
-              Next.js route handlers on Vercel ───────────────┘
+              Vaani bridge (npm run bridge, always-on Node) ──┘   + /vaani/webhook (call events)
+                               │ shares code and database
+              Next.js route handlers on Vercel
                 ├─ /webhooks/voice/{provider}/incoming|status   (HMAC, dedupe, monotonic state)
                 ├─ /internal/voice/tools/*                      (service secret + per-call token)
                 │     Gemini Flash: intent + facts with quotes  →  server re-parses and validates
@@ -154,9 +156,15 @@ All of the frozen endpoints from the backend prompt are implemented unchanged:
 | `GET /api/v1/me` | The frontend needs the caller's role to render restricted states. |
 | `POST /api/v1/cost-entries` (admin) | Invoiced costs are needed for reconciliation against estimates. |
 | `GET /api/v1/demo/calls` | Lists scenarios; demo mode only. |
+| `POST /api/v1/demo/session` | Evaluator sandbox sign-in (demo mode only, rate-limited per IP). The token carries a sandbox claim: simulated leads only (others 404), no live calendar availability, and no policy or cost writes (403 `sandbox_read_only`). Real records still need a Supabase Auth login. |
+| `GET /api/v1/bookings` | The Consultations screen lists bookings across leads (RLS applies; sandbox sees simulated only). |
+| `GET /api/v1/staff` (admin, front desk) | Roster for assigning designers and showing handoff recipients. |
+| `Dashboard.daily` | Per-day (IST) calls, responses within target, leads and qualified leads for the activity chart. |
+| `Me.sandbox` | The UI labels sandbox sessions and hides configuration writes. |
 | `GET /internal/jobs/dispatch` | Vercel Cron only issues GET; same auth and limits as POST. |
 | `capture-facts` optional `extract: false` | Records booking small talk without extraction. |
 | `capture-facts` `confirmations[]` | Structured caller read-back confirmations, checked against an affirmative or negative caller utterance. |
+| `/webhooks/voice/vaani/*` accepts Vaani AI's own event body with `?token=` | Vaani AI webhooks are unsigned and not in our normalised envelope (changed from the earlier, wrong-vendor signature scheme). |
 
 **Clarifications Codex should know:**
 - **Booking endpoints accept two auth modes:** a staff JWT, or the voice service credential bound to the current call (`X-Aangan-Call-Id` / `X-Aangan-Call-Token`). Voice may only act on its own call's lead and only book qualified leads.
@@ -257,10 +265,8 @@ Costs follow the plan's formula: `fixed costs + connected minutes × voice bundl
 
 ## 10. Remaining real-provider work (not done; requires accounts and user authorisation)
 
-- **Vaani:** the documented API offers browser voice sessions and signed post-call webhooks only. There is **no documented server-side tool calling and no inbound telephony**. The live voice-to-tool loop therefore remains simulated. Before any live claim:
-  - confirm the account's tool or event contracts, or build a bridge;
-  - prove number routing and turn-taking latency.
-- **Gemini:** verify `responseJsonSchema` and the model id with a real key, and measure latency (the voice-turn budget is 8 s timeout plus heuristic fallback).
+- **Vaani AI:** live calls go through the BYOL bridge (`npm run bridge`). The bridge needs an always-on host with a public `wss://` URL (Render config in `render.yaml`), and the Vaani agent must be pointed at it (`docs/providers.md`). Inbound number routing is not documented by Vaani and needs confirming. Webhooks are unsigned and protected by a URL token.
+- **Gemini:** verified with the studio key on 2026-10-10. `gemini-3.8-flash` works with `responseJsonSchema` minus unsupported keywords, at about 3 s per turn (8 s timeout, heuristic fallback).
 - **Cal.com:** confirm the unavailable-slot error shape, whether booking works without attendee email, and that the event type does not require host confirmation.
 - **HubSpot:** create the unique `aangan_lead_id` deal property and pipeline/stage ids; verify the duplicate-contact 409 format.
 - **Resend:** verify the sending domain and from-address; use real designer addresses in the roster.

@@ -12,7 +12,7 @@ Official documentation was checked on **2026-10-07**. Adapter tests (`tests/unit
 
 | Provider | Env vars (live) | Adapter | Mock |
 |---|---|---|---|
-| Vaani Labs | `VAANI_API_KEY`, `VAANI_WEBHOOK_SECRET` (+ `VAANI_FLOW_ID`, `VAANI_API_BASE_URL`) | `src/lib/providers/vaani.ts` | `simulated` voice provider (`/webhooks/voice/simulated/*`, demo mode only) |
+| Vaani AI | `VAANI_API_KEY`, `VAANI_BYOL_TOKEN`, `VAANI_WEBHOOK_SECRET` | `src/bridge/server.ts`, `src/lib/voice/*` | `simulated` voice provider (`/webhooks/voice/simulated/*`, demo mode only) |
 | Gemini Flash | `GEMINI_API_KEY` (+ `GEMINI_MODEL`, default `gemini-3.8-flash`; `GEMINI_TIMEOUT_MS`) | `src/lib/ai/gemini.ts` | Recorded fixtures (simulated calls) or the heuristic extractor |
 | Cal.com | `CALCOM_API_KEY`, `CALCOM_EVENT_TYPE_ID` (+ `CALCOM_API_BASE_URL`) | `src/lib/providers/calcom.ts` | `createMockCalendar`: Mon–Sat 11:00 / 14:30 / 17:00 IST |
 | HubSpot | `HUBSPOT_ACCESS_TOKEN`, `HUBSPOT_PIPELINE_ID`, `HUBSPOT_DEALSTAGE_ID` (+ `HUBSPOT_LEAD_ID_PROPERTY`) | `src/lib/providers/hubspot.ts` | `createMockCrm` |
@@ -21,30 +21,39 @@ Official documentation was checked on **2026-10-07**. Adapter tests (`tests/unit
 
 Alias names are also accepted, so the studio's setup notes work unchanged: `CAL_API_KEY`, `CAL_EVENT_TYPE_ID` (numeric id or event-type URL), `HUBSPOT_QUALIFIED_STAGE_ID`, `RESEND_FROM_EMAIL`, `NEXT_PUBLIC_APP_URL` and `NEXT_PUBLIC_SUPABASE_URL`. The canonical name wins if both are set.
 
-## Vaani Labs (voice)
+## Vaani AI (voice)
 
-**Verified** from vaanilabs.in/docs and the OpenAPI v1 spec:
-- Base URL `https://www.vaanilabs.in`, auth `Authorization: Bearer vv_live_…`.
-- `POST /api/public/v1/voicebot/session` returns a short-lived browser WebSocket session. Agents and flows are configured in the dashboard.
-- **Webhooks:** `call.completed`, `call.failed`, `meeting.ended`, `lead.created`, `usage.charged`.
-  - Envelope: `{ id: "evt_…", type, created, data }`.
-  - Signature: `X-VaaniVoice-Signature: sha256=<hex HMAC-SHA256(secret, raw body)>`.
-  - Retries: up to 8 attempts.
-- **Pricing:** voicebot 4 paise/second, billed per started minute.
+The studio's account is on **Vaani AI** (app.vaanivoice.ai; docs.vaanivoice.ai, checked 2026-10-10). An earlier version of this backend targeted a different site (vaanilabs.in); that adapter has been replaced.
 
-**Not documented, so not assumed:**
-- Server-side tool or function calling during a conversation.
-- Inbound telephony and number routing.
-- Transcript retrieval.
-- The shape of webhook `data`.
+**Verified:**
+- REST base `https://api.vaanivoice.ai`, header `X-API-Key: vaani_…`. The studio's key authenticates.
+- **Bring Your Own LLM (BYOL):** Vaani opens a WebSocket to `<ws_url>/<call_id>` per call and sends `{"interaction_type":"response_required","response_id","call_id","transcript":[{role,content}],"req_body"}` on each turn. We reply `{"response_type":"response","response_id","content","content_complete":true,"end_call"?}`. Optional `Authorization: Bearer <token>` on the upgrade.
+- **Webhooks:** `call_started`, `call_ringing`, `user_picked_up_at`, `call_rejected`, `call_no_answer`, `call_failed`, `human_transfer_*`, `call_ended`, `call_postprocessing`. JSON with `event` and `room_name`. **No signature is documented.**
 
 **Implemented:**
-- Signature verification and event-id dedupe.
-- A 24 h `created` age window, because Vaani signs no timestamp.
-- The voicebot session helper.
-- A normalised event contract (`voiceEventSchema`). Vaani events that do not map onto it are stored redacted, marked `failed` and answered 202, never guessed at.
+- **Bridge service** (`npm run bridge`, `src/bridge/server.ts`):
+  - `wss://<host>/vaani/byol/<call_id>`, authenticated with `VAANI_BYOL_TOKEN`.
+  - `POST /vaani/webhook?token=<VAANI_WEBHOOK_SECRET>` for call events.
+  - `GET /health`.
+  - Runs the bounded dispatcher every minute.
+- **Conversation controller** (`src/lib/voice/conversation.ts`): every spoken line comes from the server, through the same tools as the simulated calls. That covers discovery questions, read-backs, approved escalation scripts, qualification, slot offer, read-back, booking only after a confirmed booking ID, and handoff. Every line passes the pricing guard.
+- **Webhook mapping** (`src/lib/voice/vaani-events.ts`): events deduplicated per room and event; call state never regresses. The Next.js route `/webhooks/voice/vaani/status?token=…` accepts the same events.
 
-**Gap: the live voice-to-tool loop.** The business tools (`/internal/voice/tools/*`) work and are exercised by the simulated provider. Connecting them to real calls needs either Vaani tool-call support on the account or a bridge, plus proven inbound routing. Until then the product is a **simulated** phone-enquiry MVP.
+**To go live with Vaani** (needs your accounts):
+1. Host the bridge with a public `wss://` URL: Render (`render.yaml`) or Railway; or a tunnel such as cloudflared or ngrok for local testing.
+2. In the Vaani agent, open **Brain → LLM → Bring your Own LLM**. Set:
+   - URL: `wss://<bridge-host>/vaani/byol`
+   - Auth Token: the value of `VAANI_BYOL_TOKEN`
+   - Fallback: **No fallback**, so Vaani's own model never improvises prices.
+   Then click Test Connection.
+3. Set the agent's opening message to the policy disclosure ("Hello, you've reached Aangan Studio. I'm an automated assistant…").
+4. Under **Developers → Webhooks**, add `https://<bridge-host>/vaani/webhook?token=<VAANI_WEBHOOK_SECRET>`.
+5. Under **Settings → Telephony**, provision or connect a number and link it to the agent. Inbound routing details aren't documented, so confirm them with Vaani.
+
+**Remaining gaps:**
+- BYOL timeout and latency limits are undocumented. Gemini extraction takes about 3 s per turn.
+- Webhooks are unsigned.
+- Inbound telephony needs confirming with Vaani.
 
 ## Gemini Flash (classification and extraction)
 
@@ -140,7 +149,7 @@ Run each item only with your own accounts and your consent. Each one creates rea
 2. **Cal.com:** create one test booking on a test event type, then cancel it in Cal.com. Also check what a conflict returns.
 3. **HubSpot:** in a sandbox or test portal, create the unique property, then run `crm.sync` for one test lead twice and confirm a single deal.
 4. **Resend:** send one handoff to your own verified address and confirm idempotent re-send behaviour.
-5. **Vaani:** register a webhook on a test endpoint and capture a real `call.completed` payload. Map it onto `voiceEventSchema` and confirm whether tool calls or telephony exist on the account.
+5. **Vaani:** run the bridge behind a public URL, point the agent's BYOL setting and webhook at it, and place one test call to the agent from the Vaani dashboard.
 6. **Supabase:** apply migrations to a new project, link staff to Auth users and run `/ready`.
 
 Record measured latency, API versions and integration status in the integrations panel and in this document.

@@ -3,11 +3,11 @@ import policyJson from "../../config/policy.demo.json";
 import { validatePolicyConfig } from "@/lib/policy/schema";
 
 describe("policy validation", () => {
-  it("the demo policy is valid and labelled as demo", () => {
+  it("Nikhil's policy is valid, carries no prices, and is not labelled as demo", () => {
     const v = validatePolicyConfig(policyJson);
     expect(v.ok).toBe(true);
-    expect(policyJson.demo).toBe(true);
-    expect(policyJson.label).toBe("Demo data and sample business rules");
+    expect(policyJson.demo).toBe(false);
+    expect(JSON.stringify(policyJson)).not.toMatch(/₹|per sq|\/sq ?ft|1,800|2,400|3,500/);
   });
   it("rejects duplicate rule ids and unsupported services without a boundary script", () => {
     const bad = structuredClone(policyJson);

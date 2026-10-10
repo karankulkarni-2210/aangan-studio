@@ -8,4 +8,5 @@ export const GET = route({ auth: "staff", rateLimitPerMinute: 120 }, async ({ st
   display_name: staff!.display_name,
   email: staff!.email,
   app_mode: env.appMode(),
+  sandbox: staff!.sandbox ?? false,
 }));

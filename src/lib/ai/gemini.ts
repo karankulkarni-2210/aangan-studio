@@ -37,7 +37,7 @@ export function createGeminiExtractor(fetchImpl: typeof fetch = fetch): Extracto
           responseMimeType: "application/json",
           responseJsonSchema: extractionJsonSchema(),
           maxOutputTokens: 2048,
-          thinkingConfig: { thinkingLevel: "LOW" },
+          thinkingConfig: { thinkingLevel: cfg.thinkingLevel },
         },
       };
       let res: Response;

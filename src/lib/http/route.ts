@@ -16,6 +16,8 @@ export interface StaffActor {
   role: Role;
   display_name: string;
   email: string;
+  /** Evaluator sandbox: sees and changes simulated records only; configuration is read-only. */
+  sandbox?: boolean;
 }
 
 export interface VoiceBinding {
@@ -37,6 +39,11 @@ export interface RouteOptions {
   rateLimitPerMinute?: number;
   /** Health/readiness are served even when live configuration is incomplete. */
   allowWhenLiveIncomplete?: boolean;
+  /**
+   * Evaluator sandbox sessions: "deny" refuses the route (configuration writes); "simulated_lead"
+   * only allows the `{id}` lead when it is simulated (others are reported as not found).
+   */
+  sandbox?: "deny" | "simulated_lead";
 }
 
 export interface RouteContext {
@@ -107,8 +114,9 @@ async function authenticateStaff(db: Db, req: Request): Promise<StaffActor> {
   const token = bearer(req);
   if (!token) throw unauthorized();
   let sub: string;
+  let sandbox = false;
   try {
-    sub = (await verifyAccessToken(token)).sub;
+    ({ sub, sandbox } = await verifyAccessToken(token));
   } catch (err) {
     throw unauthorized(err instanceof TokenError ? err.message : "Invalid token");
   }
@@ -117,7 +125,15 @@ async function authenticateStaff(db: Db, req: Request): Promise<StaffActor> {
     [sub],
   );
   if (!rows[0]) throw forbidden("Authenticated user is not active studio staff");
-  return rows[0];
+  return { ...rows[0], sandbox };
+}
+
+/** Sandbox sessions may only touch simulated leads; anything else is reported as not found. */
+export async function assertSandboxLead(db: Db, staff: StaffActor | null, leadId: string | undefined): Promise<void> {
+  if (!staff?.sandbox) return;
+  if (!leadId || !/^[0-9a-f-]{36}$/i.test(leadId)) throw badRequest("lead_required", "The demo sandbox needs a simulated lead");
+  const { rows } = await db.query<{ is_simulated: boolean }>(`select is_simulated from public.leads where id = $1`, [leadId]);
+  if (!rows[0]?.is_simulated) throw new ApiError(404, "not_found", "Lead not found");
 }
 
 const CALL_TOOL_GRACE_MS = 15 * 60 * 1000;
@@ -192,6 +208,10 @@ export function route(opts: RouteOptions, handler: Handler) {
         if (!token || !safeEqual(token, secret)) throw unauthorized("Invalid dispatcher credential");
       }
       if (staff && opts.roles && !opts.roles.includes(staff.role)) throw forbidden();
+      if (staff?.sandbox && opts.sandbox === "deny") {
+        throw new ApiError(403, "sandbox_read_only", "Not available in the demo sandbox: studio configuration is read-only here");
+      }
+      if (staff?.sandbox && opts.sandbox === "simulated_lead") await assertSandboxLead(db, staff, params.id);
 
       if (opts.rateLimitPerMinute) {
         const principal = staff ? `staff:${staff.id}` : voice ? `call:${voice.callId}` : `ip:${clientIp(req)}`;

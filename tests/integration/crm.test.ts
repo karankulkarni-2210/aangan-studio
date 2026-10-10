@@ -57,8 +57,8 @@ describe("HubSpot sync", () => {
     void second;
   });
 
-  it("only qualified leads are synced (demo policy)", async () => {
-    const r = await simulate(db, "missing_budget");
+  it("only qualified leads are synced", async () => {
+    const r = await simulate(db, "price_only");
     expect((await leadRow(db, r.lead_id!)).crm_status).toBe("not_required");
     expect(await remoteCount("deal")).toBe(0);
   });

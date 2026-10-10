@@ -7,12 +7,12 @@ import { INTEGRATION_PROVIDERS, type IntegrationProvider } from "@/lib/domain/en
 
 const NOTES: Record<IntegrationProvider, { verified: string; capability: string; gaps: string[] }> = {
   vaani: {
-    verified: "Docs checked 2026-10-07 (OpenAPI v1): browser voice sessions; webhooks call.completed/call.failed/usage.charged with X-VaaniVoice-Signature HMAC.",
-    capability: "Voice conversation (Vaani-owned audio). Webhook verification and event dedupe implemented.",
+    verified: "Vaani AI docs checked 2026-10-10 (docs.vaanivoice.ai): REST api.vaanivoice.ai with X-API-Key; BYOL WebSocket; unsigned call webhooks.",
+    capability: "Live calls through the BYOL bridge (npm run bridge): the server decides every spoken line. Call events via /vaani/webhook (URL token).",
     gaps: [
-      "No documented server-side tool calling: the business tools are exercised by the simulated provider.",
-      "No documented inbound telephony / number routing; phone answering is not live.",
-      "Webhook `data` shape undocumented: unmappable events are stored and marked failed, not guessed.",
+      "The bridge must run on an always-on host with a public wss:// URL (Render/Railway or a tunnel); Vercel cannot hold WebSockets.",
+      "Inbound number routing is not documented by Vaani (Settings > Telephony); confirm with Vaani support.",
+      "Webhooks are unsigned: protected by a long URL token. BYOL timeouts/latency limits are undocumented.",
     ],
   },
   gemini: {

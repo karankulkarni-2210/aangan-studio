@@ -5,7 +5,7 @@ import type { ExtractionRun } from "@/lib/ai/schema";
 import type { Db, Queryable } from "@/lib/db/types";
 import { isAffirmation, isNegation } from "@/lib/domain/detectors";
 import { ESCALATION_KINDS, FACT_FIELDS, type EscalationKind, type FactField, type FactStatus } from "@/lib/domain/enums";
-import { resolveFacts, type ResolvedFacts } from "@/lib/domain/facts";
+import { resolveFacts, valueKey, type ResolvedFacts } from "@/lib/domain/facts";
 import { assertSpeakable, inspectSpeech } from "@/lib/domain/speech-guard";
 import { badRequest, conflict } from "@/lib/http/errors";
 import type { VoiceBinding } from "@/lib/http/route";
@@ -239,7 +239,18 @@ export async function captureFacts(db: Db, voice: VoiceBinding, body: z.infer<ty
         lastPromptedField: call.last_prompted_field,
         lastPromptKind: call.last_prompt_kind,
       });
-      for (const e of normalized.evidence as EvidenceDraft[]) {
+      const drafts = latestAnswerPerField(normalized.evidence as EvidenceDraft[]);
+      // A new value given in reply to a read-back or "say it once more" for that field is a correction:
+      // it replaces the earlier answers (only those saved before this turn) instead of conflicting with them.
+      const clarified = call.last_prompt_kind === "confirm" ? (call.last_prompted_field as FactField | null) : null;
+      const earlier = clarified
+        ? evidenceNow.filter((e) => e.field === clarified && ["stated", "needs_confirmation", "confirmed"].includes(e.status)).map((e) => e.id)
+        : [];
+      if (earlier.length > 0 && drafts.some((d) => d.field === clarified && d.status !== "confirmed" && d.value.kind !== "declined")) {
+        await tx.query(`update public.field_evidence set confirmation_status = 'superseded'
+            where id = any($1::uuid[]) and confirmation_status in ('stated', 'needs_confirmation', 'confirmed')`, [earlier]);
+      }
+      for (const e of drafts) {
         await tx.query(
           `insert into public.field_evidence (lead_id, call_id, utterance_id, field, value, quote, source, confidence, ambiguity, confirmation_status, extractor)
            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
@@ -288,13 +299,13 @@ export async function captureFacts(db: Db, voice: VoiceBinding, body: z.infer<ty
       if (res.created) escalations.push({ kind: r.kind, task_id: res.task_id, say: res.say });
     }
 
-    // One question at a time; a question the caller has not answered after two asks is skipped
-    // for this call (left missing for the team) instead of being repeated.
+    // One question at a time; a question or read-back the caller has not settled after two asks is
+    // skipped for this call (left for the team) instead of being repeated.
     const { rows: fresh } = await tx.query<CallRow>(`select * from public.calls where id = $1`, [call.id]);
     const skip = new Set<FactField>(fresh[0].skipped_fields ?? []);
     let repeats = 0;
     let step = policy ? nextDiscoveryStep(policy.config, recomputed.resolved, skip) : null;
-    if (step?.kind === "question" && step.field === fresh[0].last_prompted_field && fresh[0].last_prompt_kind === "question") {
+    if (step && step.kind !== "complete" && step.field === fresh[0].last_prompted_field && step.kind === fresh[0].last_prompt_kind) {
       repeats = fresh[0].prompt_repeats + 1;
       if (repeats >= 2) {
         skip.add(step.field!);
@@ -434,4 +445,18 @@ export async function requestHandoff(db: Db, voice: VoiceBinding, body: z.infer<
       say: handOff ? [policy?.config.scripts.handoff_confirmation ?? FALLBACK_SCRIPT] : [],
     });
   });
+}
+
+/**
+ * A caller who gives two different answers for the same field in one turn ("Rittik… no, Hrithik")
+ * is correcting themselves: only the answer from their latest utterance is kept.
+ */
+export function latestAnswerPerField(drafts: EvidenceDraft[]): EvidenceDraft[] {
+  const latest = new Map<FactField, number>();
+  for (const d of drafts) {
+    if (d.status === "confirmed" || d.value.kind === "declined") continue;
+    const others = drafts.filter((o) => o.field === d.field && o.status !== "confirmed" && o.value.kind !== "declined");
+    if (new Set(others.map((o) => valueKey(o.value))).size > 1) latest.set(d.field, Math.max(latest.get(d.field) ?? -1, d.utterance_seq));
+  }
+  return drafts.filter((d) => d.status === "confirmed" || d.value.kind === "declined" || !latest.has(d.field) || d.utterance_seq === latest.get(d.field));
 }

@@ -4,7 +4,7 @@
 
 This is the backend for Aangan Studio's incoming-phone enquiry tool (MESA Case 03). It answers, runs discovery and qualification, escalates pricing to a human, books Cal.com consultations, syncs HubSpot, hands leads to designers via Resend, tracks acknowledgements and outcomes, and reports response times and costs.
 
-The stack is one Next.js 16 / TypeScript project with route handlers, Supabase Postgres, Auth and RLS, and a durable outbox. The frontend is designed by Codex against [`openapi.json`](openapi.json).
+The stack is one Next.js 16 / TypeScript project with route handlers, Supabase Postgres, Auth and RLS, and a durable outbox. The studio workspace UI (Overview, Enquiries, Consultations, Activity & Costs, Settings) lives in the same app (`src/app/(workspace)`, `src/ui`) and uses the API types from `src/lib/api/schemas.ts`. It is deployed at **https://aangan-studio-delta.vercel.app**.
 
 - Architecture, the Nine Checks and the acceptance mapping: [`architecture.md`](architecture.md)
 - Qualification policy (Prompt 0 output): [`docs/qualification-policy.md`](docs/qualification-policy.md)
@@ -26,7 +26,7 @@ npm test
 npm run demo
 ```
 
-- `npm test` runs 202 tests against embedded Postgres (PGlite) with the real SQL migrations and RLS.
+- `npm test` runs 230 tests against embedded Postgres (PGlite) with the real SQL migrations and RLS.
 - `npm run demo` runs the reproducible end-to-end demo and writes `demo-output/`.
 
 The demo covers:
@@ -93,16 +93,32 @@ Link real Auth users to staff with `update public.staff set auth_user_id = '<aut
 
 **Without the CLI:** `DATABASE_URL=… npm run db:migrate` applies the migrations. Add `-- --seed` for demo data.
 
-## Deploy (prepared, not performed)
+## Live phone calls (Vaani AI bridge)
 
-Nothing has been pushed, published or deployed.
+Live calls run through a small always-on service in this repo:
 
-1. **Supabase:** create a project. Apply the migrations (`supabase db push` or `npm run db:migrate`). Seed or replace the demo policy, create Auth users and link them in `public.staff`.
-2. **Vercel:** import the repository and set the environment variables from [`.env.example`](.env.example).
-   - Use the transaction-pooler `DATABASE_URL` (port 6543) with `DATABASE_SSL=true`.
-   - Set `APP_MODE=live` only when every check in `/ready` passes; live mode fails closed.
-3. **Dispatcher schedule:** `vercel.json` runs a **daily** backstop, the Hobby limit. For per-minute processing, run [`supabase/cron.sql.example`](supabase/cron.sql.example) (pg_cron + pg_net + Vault) or use Vercel Pro cron.
-4. **GitHub:** the repository is initialised locally with no remote. Add one and push when you choose.
+```bash
+npm run bridge
+```
+
+It serves the Vaani "Bring Your Own LLM" WebSocket (`/vaani/byol/<call_id>`), the call-event webhook (`/vaani/webhook?token=…`) and the job dispatcher. It needs a public `wss://` URL: deploy it with `render.yaml`, or use a tunnel for testing. The Vaani agent settings to change are in [`docs/providers.md`](docs/providers.md).
+
+## Workspace UI and evaluator demo
+
+- **Sign in:** `/login` offers **Explore the demo** (founder, front desk or designer) and **Studio staff sign in** (Supabase Auth email + password).
+- **Demo sandbox:** `POST /api/v1/demo/session` issues a 4-hour token with a sandbox claim (demo mode only). Sandbox sessions see and change **simulated leads only** (real leads return 404), never see live calendar availability, and cannot edit policies or costs (403 `sandbox_read_only`). Simulated leads always use mock providers: no real email, calendar booking or CRM write.
+- **Demo flow:** Overview → **Try a sample enquiry** (five scripted calls) → saved lead → qualification → simulated consultation → mock HubSpot and email status → switch to the recipient designer and **Accept lead** → the Overview updates.
+- **Design:** ivory/forest-green system in `src/app/globals.css` (Instrument Serif + Inter via `next/font`); no extra UI dependencies.
+
+## Deployment (Vercel)
+
+Deployed to the Vercel team **Karan OP** (project `aangan-studio`, functions in `bom1` Mumbai beside the Supabase database).
+
+1. **Environment:** production variables are set in Vercel (provider keys, `DATABASE_URL`, `CRON_SECRET`, `DEMO_JWT_SECRET` and the rest marked sensitive). `.vercelignore` keeps `.env*` out of uploads. `APP_MODE=demo` enables the evaluator sandbox.
+2. **Deploy:** `npx vercel deploy --prod` (or connect the GitHub repository in Vercel for deploys on push).
+3. **Dispatcher:** `vercel.json` runs a **daily** backstop (Hobby limit), authenticated with `CRON_SECRET`. The Vaani bridge also dispatches every minute while it runs. For per-minute processing without the bridge, use [`supabase/cron.sql.example`](supabase/cron.sql.example) or Vercel Pro cron.
+4. **Staff accounts:** create a user in Supabase Auth, then link it: `update public.staff set auth_user_id = '<auth user id>' where email = '<staff email>';` (or insert a new staff row). The UI signs in with email + password, so no redirect URLs are needed; set the Supabase Auth Site URL to the deployed domain if you later enable password-reset or magic-link emails.
+5. **Live mode:** set `APP_MODE=live` only when every check in `/ready` passes; live mode fails closed and disables the demo sandbox.
 
 ## Scripts
 
@@ -116,6 +132,7 @@ Nothing has been pushed, published or deployed.
 | `npm run seed:generate` | Regenerate `supabase/seed.sql` from `src/lib/seed/demo.ts` + `config/policy.demo.json` |
 | `npm run db:migrate` | Apply migrations to `DATABASE_URL` (`-- --seed` for demo data) |
 | `npm run demo:secrets` / `demo:token -- <identity>` | Local demo secrets / demo staff tokens (demo mode only) |
+| `npm run bridge` | Vaani live-call bridge (WebSocket + webhook + dispatcher) |
 | `npm run check` | typecheck + tests + demo |
 
 ## Layout

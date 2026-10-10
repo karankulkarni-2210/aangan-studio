@@ -176,7 +176,16 @@ export async function createBooking(db: Db, actor: Actor, leadId: string, body: 
   });
 
   const conflictResponse = async () => {
-    const alternatives = ((await sameDaySlots(db, lead.is_simulated, slotStart, duration)) ?? []).filter((s) => s.start !== slotStart).slice(0, policy!.config.booking.max_slots_offered);
+    // Alternatives come from the whole booking window, not just the next 24 hours (a Saturday-evening
+    // conflict must still offer Monday when Sunday is closed).
+    const horizonEnd = new Date(Math.max(new Date(slotStart).getTime(), now().getTime()) + policy!.config.booking.horizon_days * 86400000);
+    const res = await getProviders(db, { simulated: lead.is_simulated }).calendar.getSlots({
+      start: new Date(Math.max(now().getTime() + 3600000, new Date(slotStart).getTime() - 3600000)),
+      end: horizonEnd,
+      durationMinutes: duration,
+      timeZone: "Asia/Kolkata",
+    });
+    const alternatives = (res.status === "ok" ? res.data : []).filter((s) => s.start !== slotStart).slice(0, policy!.config.booking.max_slots_offered);
     await db.query(`update public.bookings set status = 'conflict', last_error = 'slot unavailable' where id = $1`, [booking.id]);
     const details = { booking_id: booking.id, alternatives: alternatives.map((s) => ({ ...s, label: slotLabel(s.start) })), say: [scripts?.booking_conflict ?? ""] };
     assertSpeakable(details);

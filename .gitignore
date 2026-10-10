@@ -9,3 +9,5 @@ demo-output/
 .demo-db/
 .vercel
 coverage
+.claude/launch.json
+.env*

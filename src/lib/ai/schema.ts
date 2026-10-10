@@ -35,11 +35,31 @@ export const extractionOutputSchema = z.object({
 });
 export type ExtractionOutput = z.infer<typeof extractionOutputSchema>;
 
+// JSON Schema keywords sent to Gemini in responseJsonSchema. Verified against gemini-3.8-flash on
+// 2026-10-10: minLength/maxLength are unsupported, and maxItems on the (11-property) fact objects
+// makes the request exceed Gemini's schema-complexity limit; both return HTTP 400. All of these
+// limits are still enforced server-side by the zod schema.
+const GEMINI_SCHEMA_KEYWORDS = new Set([
+  "$id", "$defs", "$ref", "$anchor", "type", "format", "title", "description", "enum", "items", "prefixItems",
+  "minimum", "maximum", "anyOf", "oneOf", "properties", "additionalProperties", "required", "propertyOrdering",
+]);
+
+function geminiCompatible(node: unknown, inProperties = false): unknown {
+  if (Array.isArray(node)) return node.map((n) => geminiCompatible(n));
+  if (!node || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node)) {
+    // Keys under "properties"/"$defs" are field names, not keywords.
+    if (inProperties || GEMINI_SCHEMA_KEYWORDS.has(k)) out[k] = geminiCompatible(v, !inProperties && (k === "properties" || k === "$defs"));
+  }
+  return out;
+}
+
 /** JSON Schema sent to Gemini (`responseJsonSchema`). Generated from the same zod schema. */
 export function extractionJsonSchema(): Record<string, unknown> {
   const schema = z.toJSONSchema(extractionOutputSchema, { target: "draft-2020-12" }) as Record<string, unknown>;
   delete schema.$schema;
-  return schema;
+  return geminiCompatible(schema) as Record<string, unknown>;
 }
 
 export interface ExtractionUsage {

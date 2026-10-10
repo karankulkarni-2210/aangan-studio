@@ -14,7 +14,7 @@ npm install
 npm run check
 ```
 
-`npm run check` runs `tsc --noEmit`, 202 Vitest tests (embedded Postgres with the real migrations and RLS), and `npm run demo`. The demo prints 19 checks and writes `demo-output/report.md`, transcripts, email previews, lead JSON and the dashboard JSON.
+`npm run check` runs `tsc --noEmit`, 220 Vitest tests (embedded Postgres with the real migrations and RLS), and `npm run demo`. The demo prints 19 checks and writes `demo-output/report.md`, transcripts, email previews, lead JSON and the dashboard JSON.
 
 To run the server: `npm run demo:secrets`, then `DATABASE_URL=pglite:./.demo-db npm run dev`, then mint a token with `npm run demo:token -- admin`.
 
@@ -63,10 +63,8 @@ Behaviour the screens should reflect:
 
 ## Gaps (see `docs/providers.md`)
 
-- **Vaani:**
-  - No documented server-side tool calling or inbound telephony, so the live voice-to-tool loop stays simulated.
-  - The webhook data shape is unverified, so unmapped events are stored and marked failed.
-- **Gemini:** structured-output field names need checking with a real key.
+- **Vaani AI:** live calls use the BYOL bridge (`npm run bridge`), which still needs hosting and agent configuration. Inbound routing is unconfirmed, and webhooks are unsigned (URL token).
+- **Gemini:** verified with the studio key (about 3 s per turn).
 - **Cal.com:** the unavailable-slot error shape and email-less bookings need checking.
 - **HubSpot:** needs the unique `aangan_lead_id` deal property and pipeline/stage ids.
 - **Resend:** needs a verified sending domain.

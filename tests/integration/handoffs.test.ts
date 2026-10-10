@@ -111,7 +111,7 @@ describe("acknowledgement", () => {
   });
 
   it("front desk accepts review handoffs from the shared queue", async () => {
-    const r = await simulate(db, "missing_budget");
+    const r = await simulate(db, "price_only");
     const res = await call(ackRoute.POST, "POST", `/api/v1/leads/${r.lead_id}/acknowledgements`, { as: "front_desk", params: { id: r.lead_id! } });
     expect(res.status).toBe(201);
   });

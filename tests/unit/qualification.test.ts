@@ -27,7 +27,7 @@ const good = (): EvidenceRecord[] => [
   ev("location", { kind: "location", city: "Pune", locality: "Baner", in_area: true }),
   ev("area", { kind: "area", sqft: 1250, original_value: 1250, original_unit: "sqft", basis: "carpet" }, "confirmed"),
   ev("budget", { kind: "budget", paise: 150_000_000, range_max_paise: null }),
-  ev("timeline", { kind: "timeline", months: 1, text: "next month" }),
+  ev("timeline", { kind: "timeline", months: 4, text: "in four months" }),
   ev("contact_name", { kind: "text", text: "Demo Caller" }),
   ev("callback_preference", { kind: "text", text: "evenings" }),
 ];
@@ -60,28 +60,44 @@ describe("fact resolution", () => {
   });
 });
 
-describe("qualification decision table (demo policy)", () => {
+describe("qualification decision table (Nikhil's rubric)", () => {
   it("all criteria met -> qualified", () => {
     expect(decide(good()).decision).toBe("qualified");
   });
   it("unsupported service -> not_fit", () => {
     const r = decide(replace("service", ev("service", { kind: "service", service_id: "structural_construction", description: "build" })));
     expect(r.decision).toBe("not_fit");
-    expect(r.reasons.find((x) => x.rule_id === "SERVICE_SUPPORTED")).toMatchObject({ result: "fail", effect: "not_fit" });
+    expect(r.reasons.find((x) => x.rule_id === "REAL_PROJECT_IN_SCOPE")).toMatchObject({ result: "fail", effect: "not_fit" });
   });
-  it("missing budget -> needs_review (not rejection)", () => {
+  it("budget never mentioned or declined -> still qualified (never probed)", () => {
     const r = decide(replace("budget", null));
-    expect(r.decision).toBe("needs_review");
-    expect(r.missing_fields).toContain("budget");
+    expect(r.decision).toBe("qualified");
+    expect(r.missing_fields).not.toContain("budget");
+    expect(decide(replace("budget", ev("budget", { kind: "declined" }))).decision).toBe("qualified");
   });
-  it("declined budget -> needs_review", () => {
-    expect(decide(replace("budget", ev("budget", { kind: "declined" }))).decision).toBe("needs_review");
+  it("a volunteered budget clearly below any project's scope -> not_fit", () => {
+    expect(decide(replace("budget", ev("budget", { kind: "budget", paise: 15_000_000, range_max_paise: null }))).decision).toBe("not_fit");
+    expect(decide(replace("budget", ev("budget", { kind: "budget", paise: 50_000_000, range_max_paise: null }))).decision).toBe("qualified");
   });
-  it("budget below the demo threshold -> not_fit", () => {
-    expect(decide(replace("budget", ev("budget", { kind: "budget", paise: 50_000_000, range_max_paise: null }))).decision).toBe("not_fit");
+  it("needed complete in under six weeks -> not_fit; a far deadline is fine", () => {
+    expect(decide(replace("timeline", ev("timeline", { kind: "timeline", months: 0.7, text: "three weeks" }))).decision).toBe("not_fit");
+    expect(decide(replace("timeline", ev("timeline", { kind: "timeline", months: 9, text: "next summer" }))).decision).toBe("qualified");
   });
-  it("start beyond six months -> needs_review", () => {
-    expect(decide(replace("timeline", ev("timeline", { kind: "timeline", months: 9, text: "next summer" }))).decision).toBe("needs_review");
+  it("office size: under 500 sq ft is not a fit, over 3,000 goes to review; homes are unaffected", () => {
+    const office = (sqft: number) => [
+      ...good().filter((e) => e.field !== "service" && e.field !== "area"),
+      ev("service", { kind: "service", service_id: "small_office_interiors", description: "office" }),
+      ev("area", { kind: "area", sqft, original_value: sqft, original_unit: "sqft", basis: "carpet" }, "confirmed"),
+    ];
+    expect(decide(office(180)).decision).toBe("not_fit");
+    expect(decide(office(1200)).decision).toBe("qualified");
+    expect(decide(office(3500)).decision).toBe("needs_review");
+    expect(decide(replace("area", ev("area", { kind: "area", sqft: 5500, original_value: 5500, original_unit: "sqft", basis: "carpet" }, "confirmed"))).decision).toBe("qualified");
+  });
+  it("advice-only, hospitality and retail requests are not a fit", () => {
+    for (const id of ["advice_only", "hospitality_retail"]) {
+      expect(decide(replace("service", ev("service", { kind: "service", service_id: id, description: id }))).decision).toBe("not_fit");
+    }
   });
   it("stated but unconfirmed area -> needs_review", () => {
     const r = decide(replace("area", ev("area", { kind: "area", sqft: 1250, original_value: 1250, original_unit: "sqft", basis: "carpet" })));
@@ -93,10 +109,10 @@ describe("qualification decision table (demo policy)", () => {
     expect(decide(replace("location", ev("location", { kind: "location", city: "mumbai", locality: null, in_area: false }))).decision).toBe("not_fit");
   });
   it("contradictory facts -> needs_review", () => {
-    const evs = [...good(), ev("budget", { kind: "budget", paise: 300_000_000, range_max_paise: null })];
+    const evs = [...good(), ev("timeline", { kind: "timeline", months: 8, text: "eight months" })];
     const r = decide(evs);
     expect(r.decision).toBe("needs_review");
-    expect(r.contradictory_fields).toContain("budget");
+    expect(r.contradictory_fields).toContain("timeline");
   });
   it("non-project intent -> needs_review", () => {
     expect(decide(good(), { intent: "vendor_or_job" }).decision).toBe("needs_review");
@@ -111,7 +127,7 @@ describe("qualification decision table (demo policy)", () => {
     expect(decide(good(), { injectionSuspected: true }).decision).toBe("needs_review");
   });
   it("a definite not_fit outranks missing facts", () => {
-    const evs = replace("budget", null).filter((e) => e.field !== "service");
+    const evs = replace("timeline", null).filter((e) => e.field !== "service");
     evs.push(ev("service", { kind: "service", service_id: "structural_construction", description: "construction" }));
     expect(decide(evs).decision).toBe("not_fit");
   });

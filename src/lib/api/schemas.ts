@@ -301,6 +301,9 @@ const Pct = z.object({ p50: z.number().nullable(), p95: z.number().nullable() })
 export const Dashboard = z.object({
   period: z.object({ from: ts, to: ts, timezone: z.literal("Asia/Kolkata"), data: z.enum(["all", "live", "simulated"]) }),
   generated_at: ts,
+  daily: z
+    .array(z.object({ date: z.string().describe("IST calendar day, YYYY-MM-DD"), calls: z.number().int(), eligible: z.number().int(), responded_within_target: z.number().int(), leads: z.number().int(), qualified: z.number().int() }))
+    .describe("Contract addition: per-day counts for the period (same definitions as the totals)"),
   freshness: z.object({ latest_call_event_at: nts, latest_lead_update_at: nts, last_dispatcher_run_at: nts, queued_jobs: z.number().int(), dead_jobs: z.number().int() }),
   data_labels: z.object({ contains_simulated_data: z.boolean(), simulated_calls: z.number().int(), live_calls: z.number().int(), demo_policy: z.boolean().nullable(), label: z.string().nullable(), note: z.string() }),
   metrics: z.object({
@@ -437,7 +440,56 @@ export const Integrations = z.object({
   jobs: z.array(z.object({ kind: z.string(), status: z.string(), count: z.number().int(), last_error: z.string().nullable() })),
 });
 
-export const Me = z.object({ id: uuid, role: Role, display_name: z.string(), email: z.string(), app_mode: z.enum(["demo", "live"]) });
+export const Me = z.object({
+  id: uuid,
+  role: Role,
+  display_name: z.string(),
+  email: z.string(),
+  app_mode: z.enum(["demo", "live"]),
+  sandbox: z.boolean().describe("Evaluator sandbox session: simulated records only; configuration is read-only"),
+});
+
+export const DemoSession = z.object({
+  access_token: z.string(),
+  token_type: z.literal("bearer"),
+  expires_at: ts,
+  sandbox: z.literal(true),
+  staff: z.object({ id: uuid, role: Role, display_name: z.string(), email: z.string(), app_mode: z.literal("demo") }),
+});
+
+export const StaffList = z.object({
+  data: z.array(
+    z.object({ id: uuid, display_name: z.string(), role: Role, email: z.string(), active: z.boolean(), approved_for_handoff: z.boolean(), services: z.array(z.string()), is_demo: z.boolean() }),
+  ),
+});
+
+export const BookingList = z.object({
+  timezone: z.literal("Asia/Kolkata"),
+  data: z.array(
+    z.object({
+      id: uuid,
+      lead_id: uuid,
+      lead_reference: z.string(),
+      contact_name: z.string().nullable(),
+      service_type: z.string().nullable(),
+      location_city: z.string().nullable(),
+      location_locality: z.string().nullable(),
+      status: z.enum(BOOKING_STATUSES),
+      mode: z.enum(["live", "mock"]),
+      simulated: z.boolean(),
+      slot_start: nts,
+      slot_end: nts,
+      timezone: z.string(),
+      provider_booking_uid: z.string().nullable(),
+      confirmed: z.boolean().describe("True only when the provider returned a booking id"),
+      last_error: z.string().nullable(),
+      decline_reason: z.string().nullable(),
+      requested_by: z.enum(["voice_agent", "staff"]),
+      created_at: nts,
+      owner: Owner.nullable(),
+    }),
+  ),
+});
 export const Health = z.object({ status: z.literal("ok"), app_mode: z.enum(["demo", "live"]) });
 export const Ready = z.object({
   ready: z.boolean(),

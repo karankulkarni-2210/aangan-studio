@@ -62,7 +62,7 @@ describe("cross-scenario guarantees", () => {
     const pricingTurn = r.transcript.findIndex((l) => /per square foot/i.test(l.text) && l.speaker === "caller");
     const reply = r.transcript[pricingTurn + 1];
     expect(reply.speaker).toBe("agent");
-    expect(reply.text).toMatch(/A designer will confirm pricing after reviewing your scope/);
+    expect(reply.text).toMatch(/Pricing depends on the site, the materials you choose, and the scope/);
     expect(inspectSpeech(reply.text).blocked).toBe(false);
   });
 

@@ -48,6 +48,10 @@ const ruleSchema = z.discriminatedUnion("type", [
     /** area: square feet; budget: integer paise; timeline: months. */
     threshold: z.number().nonnegative(),
     requires_confirmation: z.boolean(),
+    /** Only evaluate for these service ids (other or unknown services: not applicable). */
+    services: z.array(z.string()).min(1).optional(),
+    /** "pass": a fact the caller never gave (or declined) does not count against the lead. */
+    if_missing: z.enum(["needs_review", "pass"]).optional(),
     on_fail: ruleOutcome,
   }),
   z.object({
@@ -184,6 +188,12 @@ export function validatePolicyConfig(input: unknown): { ok: true; config: Policy
   if (!config.services.some((s) => s.supported)) {
     issues.push({ path: "services", code: "no_supported_service", message: "at least one supported service is required" });
   }
+  config.qualification_rules.forEach((r, i) => {
+    if (r.type !== "number_threshold") return;
+    for (const id of r.services ?? []) {
+      if (!config.services.some((s) => s.id === id)) issues.push({ path: `qualification_rules.${i}.services`, code: "unknown_service", message: `rule ${r.id} refers to unknown service ${id}` });
+    }
+  });
 
   const fieldNames = new Set<string>();
   config.fields.forEach((f, i) => {

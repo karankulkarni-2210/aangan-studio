@@ -81,7 +81,15 @@ function evaluateRule(rule: QualificationRule, input: QualificationInput, policy
       return done("location", f.value.in_area ? "pass" : "fail", rule.on_fail);
     }
     case "number_threshold": {
+      if (rule.services) {
+        const s = input.facts.service;
+        const id = isUsable(s) && s.value?.kind === "service" ? s.value.service_id : null;
+        if (!id || !rule.services.includes(id)) return { rule_id: rule.id, field: rule.field, result: "pass", effect: "none", message: `not applicable to this project type (${rule.description})` };
+      }
       const f = input.facts[rule.field];
+      if ((f.status === "missing" || f.status === "declined") && rule.if_missing === "pass") {
+        return { rule_id: rule.id, field: rule.field, result: "pass", effect: "none", message: `${rule.field} not given, which is fine (${rule.description})` };
+      }
       if (!isUsable(f) || !f.value) return done(rule.field, unusableResult(f), rule.on_fail);
       if (rule.requires_confirmation && f.status !== "confirmed") return done(rule.field, "unconfirmed", rule.on_fail);
       const n =

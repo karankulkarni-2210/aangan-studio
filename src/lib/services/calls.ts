@@ -165,7 +165,8 @@ export async function processVoiceEvent(db: Db, provider: VoiceProvider, event: 
            language = coalesce($11, language), disclosure_given = disclosure_given or $12,
            recording_consent = case when $13::text is not null then $13 else recording_consent end,
            sla_exclusion_reason = coalesce(sla_exclusion_reason, $14),
-           last_event_at = greatest(last_event_at, $15)
+           last_event_at = greatest(last_event_at, $15),
+           from_number = coalesce(from_number, $16)
          where id = $1 returning *`,
         [
           call.id,
@@ -183,6 +184,7 @@ export async function processVoiceEvent(db: Db, provider: VoiceProvider, event: 
           event.data.recording_consent ?? null,
           event.data.sla_exclusion ?? null,
           occurred,
+          event.data.from ?? null,
         ],
       );
       stale = !forward && newStatus !== null && callStatusRank(newStatus) < call.status_rank;
@@ -190,6 +192,8 @@ export async function processVoiceEvent(db: Db, provider: VoiceProvider, event: 
     }
 
     const leadId = await ensureLeadForCall(tx, call.id);
+    // A later event may be the first to carry the caller's number (e.g. Vaani call_started).
+    if (call.from_number) await tx.query(`update public.leads set caller_phone = coalesce(caller_phone, $2) where id = $1`, [leadId, call.from_number]);
     if (TERMINAL_CALL_STATUSES.includes(call.status) && !call.finalized_at) {
       await enqueue(tx, "call.finalize", { call_id: call.id }, `call.finalize:${call.id}`);
     }
