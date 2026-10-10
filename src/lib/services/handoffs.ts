@@ -211,9 +211,19 @@ export async function sendHandoffJob(db: Db, job: Job): Promise<void> {
     if (!h) throw new PermanentJobError("handoff not found");
     if (h.delivery_status === "sent" || h.delivery_status === "simulated") return null;
     const rendered = await renderHandoffEmail(tx, handoffId);
+    // Pilot redirect (DESIGNER_HANDOFF_EMAIL) applies to live sends only; the email names the
+    // intended roster recipient so the redirect is never mistaken for the real routing.
+    const live = getProviders(db, { simulated: h.is_simulated }).email.mode === "live";
+    const redirect = live ? env.handoffRedirectEmail() : undefined;
+    if (redirect && redirect !== rendered.recipient) {
+      const note = `PILOT REDIRECT: intended for ${rendered.recipient}; delivered to ${redirect} (DESIGNER_HANDOFF_EMAIL).`;
+      rendered.text = `${note}\n\n${rendered.text}`;
+      rendered.html = `<div style="font-family:system-ui,sans-serif;font-size:14px"><strong>${esc(note)}</strong></div><br>${rendered.html}`;
+    }
     // Retries must resend the identical payload under the same Idempotency-Key, otherwise Resend
     // rejects them (409 invalid_idempotent_request) after a first attempt that may have delivered.
     const email = h.subject && h.body_text && h.body_html ? { ...rendered, subject: h.subject, text: h.body_text, html: h.body_html } : rendered;
+    const to = redirect ?? rendered.recipient;
     if (!(await recipientStillApproved(tx, h, email.policy))) {
       await tx.query(`update public.handoffs set delivery_status = 'failed', last_error = 'recipient no longer approved' where id = $1`, [handoffId]);
       await openTask(tx, { lead_id: h.lead_id, kind: "integration_failure", assigned_role: "front_desk", summary: "Handoff recipient is no longer on the approved roster; reassign manually.", dedupe_key: `handoff:${handoffId}:recipient` });
@@ -223,14 +233,14 @@ export async function sendHandoffJob(db: Db, job: Job): Promise<void> {
       `update public.handoffs set subject = $2, body_text = $3, body_html = $4, delivery_status = 'sending', attempts = attempts + 1 where id = $1`,
       [handoffId, email.subject, email.text, email.html],
     );
-    return { h, email };
+    return { h, email, to };
   });
   if (!prepared) return;
-  const { h, email } = prepared;
+  const { h, email, to } = prepared;
 
   const providers = getProviders(db, { simulated: h.is_simulated });
   const result = await providers.email.send({
-    to: email.recipient,
+    to,
     subject: email.subject,
     text: email.text,
     html: email.html,

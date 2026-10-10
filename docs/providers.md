@@ -16,8 +16,10 @@ Official documentation was checked on **2026-10-07**. Adapter tests (`tests/unit
 | Gemini Flash | `GEMINI_API_KEY` (+ `GEMINI_MODEL`, default `gemini-3.8-flash`; `GEMINI_TIMEOUT_MS`) | `src/lib/ai/gemini.ts` | Recorded fixtures (simulated calls) or the heuristic extractor |
 | Cal.com | `CALCOM_API_KEY`, `CALCOM_EVENT_TYPE_ID` (+ `CALCOM_API_BASE_URL`) | `src/lib/providers/calcom.ts` | `createMockCalendar`: Mon–Sat 11:00 / 14:30 / 17:00 IST |
 | HubSpot | `HUBSPOT_ACCESS_TOKEN`, `HUBSPOT_PIPELINE_ID`, `HUBSPOT_DEALSTAGE_ID` (+ `HUBSPOT_LEAD_ID_PROPERTY`) | `src/lib/providers/hubspot.ts` | `createMockCrm` |
-| Resend | `RESEND_API_KEY`, `RESEND_FROM` | `src/lib/providers/resend.ts` | `createMockEmail` (stores the preview) |
+| Resend | `RESEND_API_KEY`, `RESEND_FROM` (+ `DESIGNER_HANDOFF_EMAIL` pilot redirect) | `src/lib/providers/resend.ts` | `createMockEmail` (stores the preview) |
 | Supabase | `DATABASE_URL`, `SUPABASE_URL` and/or `SUPABASE_JWT_SECRET` | `src/lib/db/postgres.ts`, `src/lib/auth/tokens.ts` | `DATABASE_URL=pglite:<dir>` embedded Postgres (demo only) |
+
+Alias names are also accepted, so the studio's setup notes work unchanged: `CAL_API_KEY`, `CAL_EVENT_TYPE_ID` (numeric id or event-type URL), `HUBSPOT_QUALIFIED_STAGE_ID`, `RESEND_FROM_EMAIL`, `NEXT_PUBLIC_APP_URL` and `NEXT_PUBLIC_SUPABASE_URL`. The canonical name wins if both are set.
 
 ## Vaani Labs (voice)
 

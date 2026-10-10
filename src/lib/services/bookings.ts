@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { env } from "@/lib/config/env";
 import type { Db } from "@/lib/db/types";
 import { assertSpeakable } from "@/lib/domain/speech-guard";
 import { ApiError, badRequest, conflict, forbidden, notFound } from "@/lib/http/errors";
@@ -165,7 +166,7 @@ export async function createBooking(db: Db, actor: Actor, leadId: string, body: 
       `insert into public.bookings (lead_id, call_id, mode, status, request_key, event_type_id, slot_start, slot_end, caller_confirmed_at,
          attendee_name, attendee_email, attendee_phone, requested_by)
        values ($1,$2,$3,'requested',$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
-      [leadId, actor.voice?.callId ?? null, providers.calendar.mode === "live" ? "live" : "mock", requestKey, process.env.CALCOM_EVENT_TYPE_ID ?? null,
+      [leadId, actor.voice?.callId ?? null, providers.calendar.mode === "live" ? "live" : "mock", requestKey, env.calcom().eventTypeId ?? null,
         slotStart, new Date(new Date(slotStart).getTime() + duration * 60000), now(), lead.contact_name, lead.contact_email, lead.caller_phone, requestedBy],
     );
     return rows[0];

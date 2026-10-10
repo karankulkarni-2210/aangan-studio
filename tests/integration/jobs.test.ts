@@ -105,6 +105,13 @@ describe("durable outbox and bounded dispatcher", () => {
     expect(tasks.map((t) => t.kind)).toContain("callback");
   });
 
+  it("CRON_SECRET alone authorises the scheduled dispatcher", async () => {
+    delete process.env.DISPATCH_SECRET;
+    process.env.CRON_SECRET = "c".repeat(64);
+    expect((await call(dispatchRoute.GET, "GET", "/internal/jobs/dispatch", { headers: { authorization: "Bearer wrong" } })).status).toBe(401);
+    expect((await call(dispatchRoute.GET, "GET", "/internal/jobs/dispatch", { headers: { authorization: `Bearer ${"c".repeat(64)}` } })).status).toBe(200);
+  });
+
   it("the dispatch endpoint is never public", async () => {
     expect((await call(dispatchRoute.POST, "POST", "/internal/jobs/dispatch")).status).toBe(401);
     expect((await call(dispatchRoute.POST, "POST", "/internal/jobs/dispatch", { headers: { authorization: "Bearer wrong" } })).status).toBe(401);

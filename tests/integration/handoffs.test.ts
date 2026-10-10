@@ -180,4 +180,23 @@ describe("acknowledgement", () => {
     const { rows } = await db.query(`select count(*)::int as n from public.human_tasks where lead_id = $1 and kind = 'ack_overdue'`, [id]);
     expect(rows[0].n).toBe(0);
   });
+
+  it("the pilot redirect sends live handoffs to DESIGNER_HANDOFF_EMAIL and names the intended recipient", async () => {
+    process.env.DESIGNER_HANDOFF_EMAIL = "pilot.designer@example.com";
+    const sent: Array<{ to: string; text: string }> = [];
+    setProviderOverrides({ email: { mode: "live", send: async (m) => { sent.push({ to: m.to, text: m.text }); return { status: "ok", data: { id: `live_${sent.length}` } }; } } });
+    const r = await simulate(db, "suitable_home");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe("pilot.designer@example.com");
+    expect(sent[0].text).toMatch(/^PILOT REDIRECT: intended for asha\.demo@aangan-demo\.example/);
+    const { rows } = await db.query(`select recipient_email, delivery_status from public.handoffs where lead_id = $1`, [r.lead_id]);
+    expect(rows[0]).toEqual({ recipient_email: "asha.demo@aangan-demo.example", delivery_status: "sent" });
+  });
+
+  it("mock (simulated) sends ignore the pilot redirect", async () => {
+    process.env.DESIGNER_HANDOFF_EMAIL = "pilot.designer@example.com";
+    await simulate(db, "suitable_home");
+    const { rows } = await db.query(`select payload->>'to' as to from public.mock_remote_objects where provider = 'resend'`);
+    expect(rows.map((x) => x.to)).toEqual(["asha.demo@aangan-demo.example"]);
+  });
 });

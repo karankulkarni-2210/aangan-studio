@@ -6,10 +6,40 @@ import type { IntegrationMode, IntegrationProvider } from "@/lib/domain/enums";
 
 export type AppMode = "demo" | "live";
 
-const v = (name: string): string | undefined => {
-  const value = process.env[name];
-  return value && value.trim() !== "" ? value.trim() : undefined;
+/**
+ * Accepted alternative names (e.g. the names used in the studio's setup notes). The canonical name
+ * wins when both are set; readiness and integration reports always use canonical names.
+ */
+export const ENV_ALIASES: Record<string, string[]> = {
+  APP_BASE_URL: ["NEXT_PUBLIC_APP_URL"],
+  SUPABASE_URL: ["NEXT_PUBLIC_SUPABASE_URL"],
+  CALCOM_API_KEY: ["CAL_API_KEY"],
+  CALCOM_EVENT_TYPE_ID: ["CAL_EVENT_TYPE_ID"],
+  HUBSPOT_DEALSTAGE_ID: ["HUBSPOT_QUALIFIED_STAGE_ID"],
+  RESEND_FROM: ["RESEND_FROM_EMAIL"],
 };
+
+const raw = (name: string): string | undefined => {
+  const value = process.env[name];
+  return value && value.trim() !== "" ? value.trim().replace(/^["'\u201c\u201d]+|["'\u201c\u201d]+$/g, "") : undefined;
+};
+
+const v = (name: string): string | undefined => {
+  for (const n of [name, ...(ENV_ALIASES[name] ?? [])]) {
+    const value = raw(n);
+    if (value) return value;
+  }
+  return undefined;
+};
+
+/** Accepts a numeric id or a Cal.com event-type URL (…/event-types/7421657?…). */
+export function parseCalEventTypeId(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return value;
+  return /\/event-types\/(\d+)/.exec(value)?.[1];
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const env = {
   appMode(): AppMode {
@@ -32,7 +62,7 @@ export const env = {
   gemini: () => ({ apiKey: v("GEMINI_API_KEY"), model: v("GEMINI_MODEL") ?? "gemini-3.8-flash", timeoutMs: Number(v("GEMINI_TIMEOUT_MS") ?? 8000) }),
   calcom: () => ({
     apiKey: v("CALCOM_API_KEY"),
-    eventTypeId: v("CALCOM_EVENT_TYPE_ID"),
+    eventTypeId: parseCalEventTypeId(v("CALCOM_EVENT_TYPE_ID")),
     baseUrl: v("CALCOM_API_BASE_URL") ?? "https://api.cal.com",
   }),
   hubspot: () => ({
@@ -43,6 +73,15 @@ export const env = {
     baseUrl: v("HUBSPOT_API_BASE_URL") ?? "https://api.hubapi.com",
   }),
   resend: () => ({ apiKey: v("RESEND_API_KEY"), from: v("RESEND_FROM"), baseUrl: v("RESEND_API_BASE_URL") ?? "https://api.resend.com" }),
+  /**
+   * Pilot redirect: when set, every LIVE handoff email goes to this one address (the intended
+   * roster recipient is stated in the email). Needed with Resend's onboarding@resend.dev sender,
+   * which only delivers to the Resend account owner. Simulated leads are unaffected (mock email).
+   */
+  handoffRedirectEmail: () => {
+    const value = v("DESIGNER_HANDOFF_EMAIL")?.toLowerCase();
+    return value && EMAIL.test(value) ? value : undefined;
+  },
 };
 
 /** Variables that must be present for each integration to run live. Names only. */
@@ -56,7 +95,7 @@ export const INTEGRATION_ENV: Record<IntegrationProvider, string[]> = {
 };
 
 export function missingEnv(names: string[]): string[] {
-  return names.filter((n) => !v(n));
+  return names.filter((n) => (n === "CALCOM_EVENT_TYPE_ID" ? !env.calcom().eventTypeId : !v(n)));
 }
 
 /**
