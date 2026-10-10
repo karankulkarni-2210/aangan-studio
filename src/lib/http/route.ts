@@ -41,9 +41,10 @@ export interface RouteOptions {
   allowWhenLiveIncomplete?: boolean;
   /**
    * Evaluator sandbox sessions: "deny" refuses the route (configuration writes); "simulated_lead"
-   * only allows the `{id}` lead when it is simulated (others are reported as not found).
+   * only allows the `{id}` lead when it is simulated (others are reported as not found);
+   * "passcode" allows it only with the studio's X-Settings-Passcode (SETTINGS_PASSCODE).
    */
-  sandbox?: "deny" | "simulated_lead";
+  sandbox?: "deny" | "simulated_lead" | "passcode";
 }
 
 export interface RouteContext {
@@ -212,6 +213,13 @@ export function route(opts: RouteOptions, handler: Handler) {
         throw new ApiError(403, "sandbox_read_only", "Not available in the demo sandbox: studio configuration is read-only here");
       }
       if (staff?.sandbox && opts.sandbox === "simulated_lead") await assertSandboxLead(db, staff, params.id);
+      if (staff?.sandbox && opts.sandbox === "passcode") {
+        const expected = env.settingsPasscode();
+        const given = req.headers.get("x-settings-passcode") ?? "";
+        if (!expected) throw new ApiError(403, "sandbox_read_only", "Settings are read-only here: no edit passcode is configured");
+        if (!given) throw new ApiError(403, "settings_passcode_required", "Enter the studio's edit passcode to save rule changes");
+        if (!safeEqual(given, expected)) throw new ApiError(403, "settings_passcode_invalid", "That edit passcode is not correct");
+      }
 
       if (opts.rateLimitPerMinute) {
         const principal = staff ? `staff:${staff.id}` : voice ? `call:${voice.callId}` : `ip:${clientIp(req)}`;

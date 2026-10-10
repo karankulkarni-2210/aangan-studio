@@ -16,6 +16,7 @@ export function configureTestEnv(): void {
   process.env.LOG_LEVEL = "silent";
   process.env.APP_BASE_URL = "http://localhost:3000";
   process.env.DEMO_JWT_SECRET = randomBytes(32).toString("hex");
+  delete process.env.SETTINGS_PASSCODE;
   process.env.VOICE_TOOL_SECRET = randomBytes(32).toString("hex");
   process.env.DISPATCH_SECRET = randomBytes(32).toString("hex");
   process.env.SIMULATED_VOICE_WEBHOOK_SECRET = randomBytes(32).toString("hex");

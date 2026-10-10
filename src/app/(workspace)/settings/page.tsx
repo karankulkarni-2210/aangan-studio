@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { describeError, type Integrations, type PolicyDraftResponse, type PolicyList, type PolicyPublishResponse, type StaffList } from "@/ui/api";
+import { ApiFailure, describeError, type Integrations, type PolicyDraftResponse, type PolicyList, type PolicyPublishResponse, type StaffList } from "@/ui/api";
 import { CardSkeleton, Chip, EmptyState, ErrorState, Icon, useResource, useToast } from "@/ui/components";
 import { ESCALATION, fmtLakh, fmtWhen, humanize, PROVIDER, ROLE, serviceLabel } from "@/ui/format";
 import { useSession } from "@/ui/session";
@@ -50,7 +50,9 @@ function PolicySection() {
   const policies = useResource(() => api<PolicyList>("/api/v1/policies").then((r) => r.data), []);
   const active = policies.data?.data.find((p) => p.id === policies.data?.readiness.active_policy_id) ?? null;
   const config = active?.config as unknown as Config | undefined;
-  const editable = me?.role === "admin" && !me.sandbox;
+  const editable = me?.role === "admin";
+  const [passcode, setPasscode] = useState("");
+  const pass = me?.sandbox ? { "x-settings-passcode": passcode } : undefined;
   const [draft, setDraft] = useState<Config | null>(null);
   const [result, setResult] = useState<PolicyDraftResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +72,8 @@ function PolicySection() {
     setError(null);
     setResult(null);
     try {
-      const { data } = await api<PolicyDraftResponse>("/api/v1/policies", { method: "POST", body: { config: { ...(active.config as object), ...draft } } });
+      if (me?.sandbox && !passcode.trim()) throw new ApiFailure(403, "settings_passcode_required", "Enter the studio's edit passcode to save rule changes.");
+      const { data } = await api<PolicyDraftResponse>("/api/v1/policies", { method: "POST", body: { config: { ...(active.config as object), ...draft } }, headers: pass });
       setResult(data);
       toast(data.validation.ok ? `Draft v${data.policy.version} saved and validated.` : `Draft v${data.policy.version} saved with issues to fix.`, data.validation.ok ? "ok" : "bad");
     } catch (err) {
@@ -84,7 +87,7 @@ function PolicySection() {
     setBusy("publish");
     setError(null);
     try {
-      const { data } = await api<PolicyPublishResponse>(`/api/v1/policies/${result.policy.id}/publish`, { method: "POST" });
+      const { data } = await api<PolicyPublishResponse>(`/api/v1/policies/${result.policy.id}/publish`, { method: "POST", headers: pass });
       toast(`Policy v${data.version} is now active for new calls.`);
       setResult(null);
       policies.reload();
@@ -110,7 +113,7 @@ function PolicySection() {
       </div>
       {!editable ? (
         <div className="note info small">
-          {me?.sandbox ? "The demo sandbox shows the rules but cannot change them, because they apply to real calls." : "Only the administrator can change these rules."} Changes are made as a validated draft, then published.
+          Only the founder&apos;s view can change these rules. Switch to Founder in the user menu. Changes are saved as a validated draft, then published.
         </div>
       ) : null}
 
@@ -203,6 +206,13 @@ function PolicySection() {
             )
           ) : null}
           {error ? <div className="field-error" role="alert">{error}</div> : null}
+          {me?.sandbox ? (
+            <label className="field" style={{ maxWidth: 280 }}>
+              <span>Edit passcode</span>
+              <input className="input" type="password" autoComplete="off" value={passcode} onChange={(e) => { setPasscode(e.target.value); setError(null); }} placeholder="Needed to save rule changes" />
+              <span className="tiny muted">These rules apply to real calls, so saving needs the studio&apos;s passcode.</span>
+            </label>
+          ) : null}
           <div className="row wrap">
             <button type="button" className="btn" disabled={!changed || busy !== null} onClick={() => { setDraft(structuredClone(config)); setResult(null); }}>Discard changes</button>
             <button type="button" className="btn" disabled={!changed || busy !== null} onClick={saveDraft}>{busy === "draft" ? "Validating…" : "Save as draft"}</button>

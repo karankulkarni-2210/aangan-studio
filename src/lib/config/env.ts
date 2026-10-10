@@ -54,6 +54,11 @@ export const env = {
   supabaseJwtSecret: () => v("SUPABASE_JWT_SECRET"),
   /** Demo-mode only. Locally generated (npm run demo:secret); ignored entirely in live mode. */
   demoJwtSecret: () => (env.appMode() === "demo" ? v("DEMO_JWT_SECRET") : undefined),
+  /** Lets the no-login demo session save rule changes in Settings (sent as X-Settings-Passcode). */
+  settingsPasscode: () => {
+    const p = v("SETTINGS_PASSCODE");
+    return p && p.length >= 8 ? p : undefined;
+  },
   voiceToolSecret: () => v("VOICE_TOOL_SECRET"),
   dispatchSecret: () => v("DISPATCH_SECRET") ?? v("CRON_SECRET"),
   vaaniWebhookSecret: () => v("VAANI_WEBHOOK_SECRET"),

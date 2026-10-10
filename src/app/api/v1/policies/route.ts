@@ -18,7 +18,7 @@ export const GET = route({ auth: "staff", roles: ["admin", "front_desk"], rateLi
   };
 });
 
-export const POST = route({ auth: "staff", roles: ["admin"], rateLimitPerMinute: 20, maxBodyBytes: 256 * 1024, sandbox: "deny" }, async ({ db, staff, json, requestId }) => {
+export const POST = route({ auth: "staff", roles: ["admin"], rateLimitPerMinute: 20, maxBodyBytes: 256 * 1024, sandbox: "passcode" }, async ({ db, staff, json, requestId }) => {
   const body = await json(z.object({ config: z.unknown() }).strict());
   const result = await db.tx((tx) => createDraft(tx, staff!, body.config, requestId));
   return jsonResponse(result, 201);

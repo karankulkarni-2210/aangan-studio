@@ -59,9 +59,16 @@ describe("evaluator sandbox session", () => {
     expect(sim.body.event_type.mode).toBe("mock");
   });
 
-  it("cannot change studio configuration", async () => {
+  it("cannot change studio configuration without the edit passcode", async () => {
+    delete process.env.SETTINGS_PASSCODE;
     const draft = await call(policiesRoute.POST, "POST", "/api/v1/policies", { token: sandbox, body: { config: {} } });
     expect(draft).toMatchObject({ status: 403, body: { code: "sandbox_read_only" } });
+    process.env.SETTINGS_PASSCODE = "studio-passcode-1";
+    expect((await call(policiesRoute.POST, "POST", "/api/v1/policies", { token: sandbox, body: { config: {} } })).body.code).toBe("settings_passcode_required");
+    expect((await call(policiesRoute.POST, "POST", "/api/v1/policies", { token: sandbox, body: { config: {} }, headers: { "x-settings-passcode": "wrong-pass" } })).body.code).toBe("settings_passcode_invalid");
+    const ok = await call(policiesRoute.POST, "POST", "/api/v1/policies", { token: sandbox, body: { config: {} }, headers: { "x-settings-passcode": "studio-passcode-1" } });
+    expect(ok.status).toBe(201); // stored as an invalid draft; publishing still requires a valid one
+    delete process.env.SETTINGS_PASSCODE;
     const cost = await call(costRoute.POST, "POST", "/api/v1/cost-entries", { token: sandbox, body: {} });
     expect(cost.status).toBe(403);
   });

@@ -74,16 +74,17 @@ function StudioOverview() {
           [0, 1, 2, 3].map((i) => <CardSkeleton key={i} lines={2} />)
         ) : (
           <>
-            <Metric icon="phone" label="Incoming enquiries" value={fmtInt(m!.calls.total)} sub={`${fmtInt(m!.leads.unique)} unique leads`} simulated={d.data_labels.contains_simulated_data} />
+            <Metric href="/enquiries" icon="phone" label="Incoming enquiries" value={fmtInt(m!.calls.total)} sub={`${fmtInt(m!.leads.unique)} unique leads`} simulated={d.data_labels.contains_simulated_data} />
             <Metric
+              href="/activity"
               icon="clock"
               label="Responded within 5 min"
               value={fmtPct(m!.five_minute_response.rate)}
               sub={m!.five_minute_response.denominator ? `${fmtInt(m!.five_minute_response.numerator)} of ${fmtInt(m!.five_minute_response.denominator)} eligible calls` : "No eligible calls in this period"}
               simulated={d.data_labels.contains_simulated_data}
             />
-            <Metric icon="users" label="Qualified leads" value={fmtInt(m!.qualification.qualified)} sub={`Ready for designer review · ${fmtInt(m!.qualification.total)} assessed`} simulated={d.data_labels.contains_simulated_data} />
-            <Metric icon="calendar" label="Consultations booked" value={fmtInt(m!.consultations.confirmed)} sub="Confirmed with a booking ID" simulated={d.data_labels.contains_simulated_data} />
+            <Metric href="/enquiries?qualification=qualified" icon="users" label="Qualified leads" value={fmtInt(m!.qualification.qualified)} sub={`Ready for designer review · ${fmtInt(m!.qualification.total)} assessed`} simulated={d.data_labels.contains_simulated_data} />
+            <Metric href="/consultations" icon="calendar" label="Consultations booked" value={fmtInt(m!.consultations.confirmed)} sub="Confirmed with a booking ID" simulated={d.data_labels.contains_simulated_data} />
           </>
         )}
       </div>
@@ -146,9 +147,9 @@ function StudioOverview() {
   );
 }
 
-function Metric({ icon, label, value, sub, simulated }: { icon: string; label: string; value: string; sub: string; simulated: boolean }) {
-  return (
-    <div className="card metric">
+function Metric({ icon, label, value, sub, simulated, href }: { icon: string; label: string; value: string; sub: string; simulated: boolean; href?: string }) {
+  const body = (
+    <>
       <span className="metric-icon" aria-hidden="true"><Icon name={icon} /></span>
       <div className="grow">
         <div className="row wrap between" style={{ gap: 6 }}>
@@ -158,7 +159,12 @@ function Metric({ icon, label, value, sub, simulated }: { icon: string; label: s
         <div className="metric-value num">{value}</div>
         <div className="metric-sub">{sub}</div>
       </div>
-    </div>
+    </>
+  );
+  return href ? (
+    <Link href={href} className="card metric metric-link" aria-label={`${label}: ${value}. Open details`}>{body}</Link>
+  ) : (
+    <div className="card metric">{body}</div>
   );
 }
 
@@ -322,9 +328,9 @@ function DesignerOverview() {
   return (
     <div className="stack lg">
       <div className="grid metrics">
-        <Metric icon="users" label="Leads assigned to you" value={fmtInt(mine.data.pagination.total)} sub="Designers see only their own leads" simulated={leads.some((l) => l.is_simulated)} />
-        <Metric icon="mail" label="Awaiting your acceptance" value={fmtInt(waiting.length)} sub={waiting.some((l) => l.ack_overdue) ? "Some are past the deadline" : "Accept to take over the client"} simulated={false} />
-        <Metric icon="calendar" label="Consultations booked" value={fmtInt(booked.length)} sub="Confirmed with a booking ID" simulated={false} />
+        <Metric href="/enquiries" icon="users" label="Leads assigned to you" value={fmtInt(mine.data.pagination.total)} sub="Designers see only their own leads" simulated={leads.some((l) => l.is_simulated)} />
+        <Metric href="/enquiries" icon="mail" label="Awaiting your acceptance" value={fmtInt(waiting.length)} sub={waiting.some((l) => l.ack_overdue) ? "Some are past the deadline" : "Accept to take over the client"} simulated={false} />
+        <Metric href="/consultations" icon="calendar" label="Consultations booked" value={fmtInt(booked.length)} sub="Confirmed with a booking ID" simulated={false} />
         <Metric icon="sparkle" label="Won" value={fmtInt(leads.filter((l) => l.outcome_status === "won").length)} sub="Recorded outcomes" simulated={false} />
       </div>
       <section className="card flush">

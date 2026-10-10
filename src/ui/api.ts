@@ -97,7 +97,9 @@ export function describeError(err: unknown): { title: string; detail: string } {
   const known: Record<string, string> = {
     network_error: err.message,
     forbidden: "Your role does not have access to this. Ask an administrator if you need it.",
-    sandbox_read_only: "The demo sandbox can view studio settings but not change them.",
+    sandbox_read_only: "Studio settings are read-only on this deployment.",
+    settings_passcode_required: "Enter the studio's edit passcode to save rule changes.",
+    settings_passcode_invalid: "That edit passcode is not correct.",
     not_found: "This record does not exist, or it is not visible to you.",
     rate_limited: "Too many requests in a short time. Wait a minute and try again.",
     database_not_configured: "The database is not configured on this deployment.",
